@@ -1,6 +1,4 @@
-dict_minimize>=0.0.4
-scipy>=1.6.2
-jax>=0.2.12
-sobol_seq>=0.1.2
-numpy>=1.20.2
-cholupdates>=0.0.1a2
+jax==0.2.12
+numpy==1.20.2
+dict_minimize==0.0.4
+cholupdates==0.0.1a2

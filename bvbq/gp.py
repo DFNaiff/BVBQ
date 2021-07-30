@@ -269,14 +269,18 @@ class SimpleGP(object):
         self.upper_chol_matrix = Udown
         return dropped_inds
     
-    def kernel_function(self,X1,X2):
+    def kernel_function(self,X1,X2,diagonal=False):
         return self.make_kernel_matrix(X1,X2,
                                        self.theta,
-                                       self.lengthscale)
-    def make_kernel_matrix(self,X1,X2,theta,lengthscale):
+                                       self.lengthscale,
+                                       diagonal=diagonal)
+    def make_kernel_matrix(self,X1,X2,theta,lengthscale,
+                           diagonal=False):
+        output = 'pairwise' if not diagonal else 'diagonal'
         K = kernelfunctions.kernel_function(X1,X2,kind=self.kind,
-                            theta=theta,
-                            l=lengthscale)
+                                            output=output,
+                                            theta=theta,
+                                            l=lengthscale)
         return K
     
     def noisify_kernel_matrix(self,kernel_matrix,noise):

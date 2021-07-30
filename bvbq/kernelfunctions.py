@@ -3,13 +3,25 @@ import jax
 import jax.numpy as jnp
 
 
-def kernel_function(x1,x2,kind='sqe',**kwargs):
+def kernel_function(x1,x2,kind='sqe',
+                    output='pairwise',
+                    **kwargs):
+    #if output == 'pairwise'
     #x1 : (...,d)
     #x2 : (...*,d)
     #return : (...,...*)
+    #elif output == 'diagonal'
+    #x1 : (...,d)
+    #x2 : (...,d)
+    #return : (...,)
     theta = kwargs.get("theta",1.0) #(,)
     l = kwargs.get("l",1.0) #(,) or #(d,)
-    difference = jnp.expand_dims(x1,tuple(range(-1-(x2.ndim-1),-1))) - x2
+    if output == 'pairwise':
+        difference = jnp.expand_dims(x1,tuple(range(-1-(x2.ndim-1),-1))) - x2
+    elif output == 'diagonal':
+        difference = x1 - x2
+    else:
+        raise ValueError
     if kind in ['sqe','matern12','matern32','matern52']:
         r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
         if kind == 'sqe':
