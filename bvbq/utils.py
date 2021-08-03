@@ -5,6 +5,14 @@ import jax.numpy as jnp
 import cholupdates.rank_1
 
 
+@jax.jit
+def logbound(logx,logdelta):
+    clipx = jnp.clip(logx,logdelta,None)
+    boundx = clipx + jnp.log(jnp.exp(logx-clipx) + \
+                             jnp.exp(logdelta-clipx))
+    return boundx
+
+
 def sample_unit_ball(*shape):
     d = shape[-1]
     x = np.random.randn(*shape)
@@ -12,6 +20,7 @@ def sample_unit_ball(*shape):
     u = np.random.rand(*(shape[:-1] + (1,)))
     x *= u**(1./d)
     return x
+
 
 def nspherical_to_cartesian(r,theta,*phi):
     x = r*np.ones(len(phi)+2)
@@ -22,14 +31,17 @@ def nspherical_to_cartesian(r,theta,*phi):
     x[-1] *= np.sin(theta)
     return x
 
+
 def jittering(M,sigma,min_jitter=1e-6):
     return M + (sigma+min_jitter)*jnp.eye(M.shape[0]) #inneficient
+
 
 def woodbudy_identity(Ainv,Cinv,U,V):
     #Inverse of (A+UCV), with Ainv (and Cinv) known
     M = jax.scipy.linalg.inv(Cinv + V@Ainv@U)
     K = Ainv - Ainv@U@M@V@Ainv
     return K
+
     
 def block_matrix_inversion(Ainv,D,B,C):
     #Inverse of 
@@ -45,6 +57,7 @@ def block_matrix_inversion(Ainv,D,B,C):
                    [P21,P22]])
     return P
 
+
 def rankn_update_upper(U,V):
     L = U.T.astype(np.double)
     V = V.astype(np.double)
@@ -53,5 +66,12 @@ def rankn_update_upper(U,V):
         L = cholupdates.rank_1.update(L,v)
     return L.T.astype(np.float32)
 
+
 def delete_submatrix(M,j):
     return jnp.delete(jnp.delete(M,j,axis=0),j,axis=1)
+
+
+def inds_mean(x,inds,indrange):
+    def ind_mean(i):
+        return jnp.nan_to_num(jnp.mean(x[inds==i]))
+    return jnp.stack([ind_mean(i) for i in indrange])
