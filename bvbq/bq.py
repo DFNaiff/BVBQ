@@ -22,7 +22,7 @@ def monte_carlo_bayesian_quadrature(gp,distrib,nsamples,return_var=True):
         return mean,var
 
 
-def separable_mvn_bq(gp,mean,var,nhermite=30,return_var=True):
+def separable_dmvn_bq(gp,mean,var,nhermite=30,return_var=True):
     locs,weights = np.polynomial.hermite.hermgauss(nhermite)
     locs = jnp.array(locs,dtype=jnp.float32)
     weights = jnp.array(weights,dtype=jnp.float32)
@@ -56,7 +56,7 @@ def separable_mvn_bq(gp,mean,var,nhermite=30,return_var=True):
         return mean,var
 
 
-def separable_mixmvn_bq(gp,means,variances,weights,nhermite=30,return_var=True):
+def separable_mixdmvn_bq(gp,means,variances,weights,nhermite=30,return_var=True):
     hlocs,hweights = np.polynomial.hermite.hermgauss(nhermite)
     hlocs = jnp.array(hlocs,dtype=jnp.float32)
     hweights = jnp.array(hweights,dtype=jnp.float32)
@@ -102,9 +102,9 @@ def calculate_bq_mean_var(gp,z,gamma=None):
     z_ = jax.scipy.linalg.solve_triangular(gp.upper_chol_matrix,
                                            z,
                                            trans='T') #(m,1)
-    mean = gp.mean + z_.transpose()@y_
+    mean = (gp.mean + z_.transpose()@y_)[0][0] #(1,1) -> (,)
     if gamma is None:
         var = None
     else:
-        var = gamma - z_.transpose()@z_
+        var = (gamma - z_.transpose()@z_)[0][0] #(1,1) -> (,)
     return mean,var

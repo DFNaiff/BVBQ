@@ -19,10 +19,14 @@ class SimpleGP(object):
                  mean=0.0,
                  ard=False,
                  min_jitter=1e-4,
-                 kind='sqe'):
+                 kind='sqe',
+                 fixed_params=[],
+                 zeromax=None):
         self.ndim = ndim
         self.kind = kind
-        self.mean = jnp.array(mean)
+        self.mean = jnp.array(mean) #THIS IS THE MEAN AFTER ZEROMAX TRANSFORMATION.
+                                    #IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
+                                    #THIS WARNING
         self.theta = jnp.array(theta)
         self.min_jitter = min_jitter
         if noise <= 0:
@@ -37,6 +41,9 @@ class SimpleGP(object):
                 lengthscale = jnp.ones(self.ndim)*lengthscale
         self.lengthscale = jnp.array(lengthscale)
         self.noise = jnp.array(noise)
+        self.fixed_params = set(fixed_params)
+        self.zeromax = zeromax
+        self.ymax = 0.0 #Neutral element in sum
         
     def set_data(self,X,y,empirical_params=False):
         ndata = X.shape[0]
@@ -44,6 +51,10 @@ class SimpleGP(object):
         y = jnp.array(y)
         if len(y.shape) == 1:
             y = jnp.expand_dims(y,-1) #(d,1)
+        if self.zeromax:
+            self.ymax = jnp.max(y)
+            print(self.ymax)
+            print('--')
         assert(y.shape[0] == ndata)
         assert(y.shape[1] == 1)
         assert(X.shape[1] == self.ndim)
@@ -54,7 +65,7 @@ class SimpleGP(object):
         upper_chol_matrix = self.make_cholesky(kernel_matrix)
         self.ndata = ndata
         self.X = X
-        self.y = y
+        self.y_ = y - self.ymax
         self.kernel_matrix = kernel_matrix #Noised already
         self.upper_chol_matrix = upper_chol_matrix
         self.make_mean_grad()
@@ -97,12 +108,12 @@ class SimpleGP(object):
         kxpred = self.make_kernel_matrix(self.X,xpred,self.theta,self.lengthscale) #(m,n)
         #,lower=False,trans='T'
         y_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
-                                               self.y-self.mean,
+                                               self.y_-self.mean,
                                                trans='T') #(m,1)
         kxpred_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
                                                     kxpred,
                                                     trans='T') #(m,n)
-        pred_mean = (kxpred_.transpose()@y_) + self.mean
+        pred_mean = (kxpred_.transpose()@y_) + self.mean + self.ymax
         if not return_cov:
             return pred_mean
         else:
@@ -130,7 +141,7 @@ class SimpleGP(object):
             Uaux = np.array(utils.delete_submatrix(self.upper_chol_matrix,drop_inds))
             Uvec = np.array(jnp.delete(self.upper_chol_matrix[drop_inds,:],drop_inds,axis=1))
             Udown = jnp.array(utils.rankn_update_upper(Uaux,Uvec.transpose())) #(m-1,m-1)
-            ydown = jnp.delete(self.y,drop_inds,axis=0) #(m-1,1)
+            ydown = jnp.delete(self.y_,drop_inds,axis=0) #(m-1,1)
             ydown_ = jax.scipy.linalg.solve_triangular(Udown,
                                                    ydown-self.mean,
                                                    trans='T') #(m-1,1)
@@ -149,7 +160,7 @@ class SimpleGP(object):
         mean_grad = jax.grad(f)
         self.mean_grad = mean_grad
         
-    def optimize_params(self,fixed_noise=False,fixed_params=[],
+    def optimize_params(self,fixed_params=[],
                         method='L-BFGS-B',
                         tol=1e-4,options={'disp':True}):
         func_and_grad = jax.value_and_grad(self.loglikelihood_wrapper)
@@ -157,11 +168,14 @@ class SimpleGP(object):
                   'mean':self.mean,
                   'raw_lengthscale':self._raw_lengthscale,
                   'raw_noise':self._raw_noise}
-        if fixed_noise:
-            params.pop('raw_noise',None)
-        for param in fixed_params:
-            params.pop(param,None)
-            params.pop('raw_'+param,None)
+        params_list = set(params.keys())
+        print(params_list)
+        print(fixed_params)
+        print(self.fixed_params)
+        for param in params_list:
+            if param in fixed_params or param in self.fixed_params:
+                params.pop(param,None)
+                params.pop('raw_'+param,None)
         params = collections.OrderedDict(params)
         res = dict_minimize.jax_api.minimize(func_and_grad, params,
                                              method=method,
@@ -174,18 +188,17 @@ class SimpleGP(object):
         self.set_data(self.X,self.y)
         return res
     
-    def gradient_step_params(self,fixed_noise=False,fixed_params=[],
+    def gradient_step_params(self,fixed_params=[],
                              alpha=1e-1,niter=1):
         func_and_grad = jax.value_and_grad(self.loglikelihood_wrapper)
         params = {'raw_theta':self._raw_theta,
                   'mean':self.mean,
                   'raw_lengthscale':self._raw_lengthscale,
                   'raw_noise':self._raw_noise}
-        if fixed_noise:
-            params.pop('raw_noise',None)
-        for param in fixed_params:
-            params.pop(param,None)
-            params.pop('raw_'+param,None)
+        for param in params:
+            if param in fixed_params or param in self.fixed_params:
+                params.pop(param,None)
+                params.pop('raw_'+param,None)
         params = collections.OrderedDict(params)
         for i in range(niter):
             _,grads = func_and_grad(params)
@@ -209,7 +222,7 @@ class SimpleGP(object):
         kernel_matrix = self.noisify_kernel_matrix(kernel_matrix_,noise)
         upper_chol_matrix = self.make_cholesky(kernel_matrix)
         y_ = jax.scipy.linalg.solve_triangular(upper_chol_matrix,
-                                               self.y-mean,
+                                               self.y_-mean,
                                                trans='T') #(m,1)
         term1 = -0.5*jnp.sum(y_**2)
         term2 = -jnp.sum(jnp.log(jnp.diag(upper_chol_matrix)))
@@ -220,11 +233,13 @@ class SimpleGP(object):
         nnew = Xnew.shape[0]
         if len(ynew.shape) == 1:
             ynew = jnp.expand_dims(ynew,-1) #(d,1)
+        if self.zeromax:
+            self.ymax = max(jnp.max(ynew),self.ymax)
         assert(ynew.shape[0] == nnew)
         assert(ynew.shape[1] == 1)
         assert(Xnew.shape[1] == self.ndim)
         Xup = jnp.vstack([self.X,Xnew])
-        yup = jnp.vstack([self.y,ynew])
+        yup = jnp.vstack([self.y_,ynew])
         K11 = self.kernel_matrix
         K12 = self.make_kernel_matrix(self.X,Xnew,
                                       self.theta,
@@ -244,7 +259,7 @@ class SimpleGP(object):
         U = jnp.block([[U11,U12],[U21,U22]])
         self.ndata += nnew
         self.X = Xup
-        self.y = yup
+        self.y_ = yup - self.ymax
         self.kernel_matrix = K
         self.upper_chol_matrix = U
         
@@ -256,7 +271,9 @@ class SimpleGP(object):
         swap_inds = jnp.hstack([jnp.delete(jnp.arange(ndata),drop_inds),drop_inds])
         dropped_inds = swap_inds[:ndown]
         Xdown = self.X[dropped_inds,:]
-        ydown = self.y[dropped_inds,:]
+        ydown = self.y_[dropped_inds,:]
+        if self.zeromax:
+            self.ymax = jnp.max(ydown)
         Kdown = self.kernel_matrix[dropped_inds,:][:,dropped_inds]
         U = self.upper_chol_matrix
         Uaux = np.array(utils.delete_submatrix(U,drop_inds))
@@ -264,7 +281,7 @@ class SimpleGP(object):
         Udown = jnp.array(utils.rankn_update_upper(Uaux,Uvec.transpose()))
         self.ndata = ndown
         self.X = Xdown
-        self.y = ydown
+        self.y_ = ydown - self.ymax
         self.kernel_matrix = Kdown
         self.upper_chol_matrix = Udown
         return dropped_inds
@@ -311,6 +328,18 @@ class SimpleGP(object):
     def derawfy(self,y):
         return jnp.log(jnp.exp(y)+1) #softmax
     
+    def fix_noise(self):
+        self.fixed_params.add('noise')
+    
+    def fix_mean(self):
+        self.fixed_params.add('mean')
+    
+    def unfix_noise(self):
+        self.fixed_params.discard('noise')
+        
+    def unfix_mean(self):
+        self.fixed_params.discard('mean')
+    
     @property
     def theta(self):
         return self.derawfy(self._raw_theta)
@@ -334,3 +363,7 @@ class SimpleGP(object):
     @noise.setter
     def noise(self,x):
         self._raw_noise = self.rawfy(x)
+        
+    @property
+    def y(self):
+        return self.y_ + self.ymax

@@ -6,6 +6,8 @@ import functools
 import jax
 import jax.numpy as jnp
 
+from . import utils
+
 
 class ProbabilityDistribution(abc.ABC):
     def __init__(self,seed):
@@ -46,23 +48,43 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
         self.std = jnp.sqrt(self.var)
     
     def logprob(self,x):
-        res = self._logprob(x,self.mean,self.var,self.ndim)
+        res = DiagonalNormalDistribution.logprob_(
+                x,self.mean,self.var)
         return res
     
-    @functools.partial(jax.jit,static_argnums=(0,))
-    def _logprob(self,x,mean,std,ndim):
+#    @functools.partial(jax.jit,static_argnums=(0,))
+#    def _logprob(self,x,mean,std,ndim):
+#        res = -0.5*jnp.sum(((x-mean)/std)**2,axis=-1) \
+#              -jnp.sum(jnp.log(std)) - ndim/2*jnp.log(2*jnp.pi)
+#        return res
+    
+    @staticmethod
+    @jax.jit
+    def logprob_(x,mean,var):
+        ndim = mean.shape[0]
+        std = jnp.sqrt(var)
         res = -0.5*jnp.sum(((x-mean)/std)**2,axis=-1) \
               -jnp.sum(jnp.log(std)) - ndim/2*jnp.log(2*jnp.pi)
         return res
     
     def sample(self,n):
-        res = self._sample(n,self.mean,self.std)
+        subkey = self.split_key()
+        res = DiagonalNormalDistribution.sample_(
+                n,self.mean,self.var,subkey)
         return res
     
-#     @functools.partial(jax.jit,static_argnums=(0,1))
-    def _sample(self,n,mean,std):
+##     @functools.partial(jax.jit,static_argnums=(0,1))
+#    def _sample(self,n,mean,std):
+#        ndim = mean.shape[0]
+#        subkey = self.split_key()
+#        z = jax.random.normal(subkey,shape=(n,ndim))
+#        res = mean + std*z
+#        return res
+    
+    @staticmethod
+    def sample_(n,mean,var,subkey):
+        std = jnp.sqrt(var)
         ndim = mean.shape[0]
-        subkey = self.split_key()
         z = jax.random.normal(subkey,shape=(n,ndim))
         res = mean + std*z
         return res
@@ -95,32 +117,60 @@ class MixtureDiagonalNormalDistribution(ProbabilityDistribution):
         self.ismixture = True
         
     def logprob(self,x):
-        res = self._logprob(x,self.means,self.stds,self.weights)
+        res = MixtureDiagonalNormalDistribution.logprob_(
+                x,self.means,self.variances,self.weights)
         return res
     
-    @functools.partial(jax.jit,static_argnums=(0,))
-    def _logprob(self,x,means,stds,weights):
+#    @functools.partial(jax.jit,static_argnums=(0,))
+#    def _logprob(self,x,means,stds,weights):
+#        ndim = means.shape[1]
+#        x = jnp.expand_dims(x,-2) #(n,1,d)
+#        yi1 = -0.5*jnp.sum(((x-means)/stds)**2,axis=-1) #(n,m)
+#        yi2 = -jnp.sum(jnp.log(stds),axis=-1) #(m,)
+#        yi3 = -ndim/2*jnp.log(2*jnp.pi) #(,)
+#        yi = yi1 + yi2 + yi3 #(n,m)
+#        ymax = jnp.max(yi,axis=-1,keepdims=True) #(n,1)
+#        sumexp = jnp.sum(weights*jnp.exp(yi-ymax),axis=-1)
+#        res = jnp.squeeze(ymax,axis=-1) + jnp.log(sumexp) #(n,)
+#        return res
+
+    @staticmethod
+    @jax.jit
+    def logprob_(x,means,variances,weights):
+        stds = jnp.sqrt(variances)
         ndim = means.shape[1]
         x = jnp.expand_dims(x,-2) #(n,1,d)
         yi1 = -0.5*jnp.sum(((x-means)/stds)**2,axis=-1) #(n,m)
         yi2 = -jnp.sum(jnp.log(stds),axis=-1) #(m,)
         yi3 = -ndim/2*jnp.log(2*jnp.pi) #(,)
         yi = yi1 + yi2 + yi3 #(n,m)
-        ymax = jnp.max(yi,axis=-1,keepdims=True) #(n,1)
-        sumexp = jnp.sum(weights*jnp.exp(yi-ymax),axis=-1)
-        res = jnp.squeeze(ymax,axis=-1) + jnp.log(sumexp) #(n,)
-        return res
-        
-    def sample(self,n):
-        res = self._sample(n,self.means,self.stds,self.weights)
+        res = utils.logsumexp(yi,weights,axis=-1)
+#        ymax = jnp.max(yi,axis=-1,keepdims=True) #(n,1)
+#        sumexp = jnp.sum(weights*jnp.exp(yi-ymax),axis=-1)
+#        res = jnp.squeeze(ymax,axis=-1) + jnp.log(sumexp) #(n,)
         return res
     
-#     @functools.partial(jax.jit,static_argnums=(0,1))
-    def _sample(self,n,means,stds,weights):
-        subkey = self.split_key()
+    def sample(self,n):
+        subkey1 = self.split_key()
+        subkey2 = self.split_key()
+        res = self.sample_(n,self.means,self.variances,self.weights,subkey1,subkey2)
+        return res
+    
+##     @functools.partial(jax.jit,static_argnums=(0,1))
+#    def _sample(self,n,means,stds,weights):
+#        subkey = self.split_key()
+#        nmixtures,ndim = means.shape
+#        catinds = jax.random.choice(subkey,nmixtures,shape=(n,),p=weights)
+#        z = jax.random.normal(subkey,shape=(n,ndim))
+#        res = means[catinds,:] + stds[catinds,:]*z
+#        return res
+    
+    @staticmethod
+    def sample_(n,means,variances,weights,subkey1,subkey2):
+        stds = jnp.sqrt(variances)
         nmixtures,ndim = means.shape
-        catinds = jax.random.choice(subkey,nmixtures,shape=(n,),p=weights)
-        z = jax.random.normal(subkey,shape=(n,ndim))
+        catinds = jax.random.choice(subkey1,nmixtures,shape=(n,),p=weights)
+        z = jax.random.normal(subkey2,shape=(n,ndim))
         res = means[catinds,:] + stds[catinds,:]*z
         return res
     
