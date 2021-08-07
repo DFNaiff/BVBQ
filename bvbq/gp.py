@@ -120,7 +120,7 @@ class SimpleGP(object):
             Kxpxp = self.make_kernel_matrix(xpred,xpred,self.theta,self.lengthscale)
             Kxpxp = self.noisify_kernel_matrix(Kxpxp,self.noise)
             pred_cov = Kxpxp - \
-                       kxpred.transpose()@kxpred_
+                       kxpred_.transpose()@kxpred_
             if not onlyvar:
                 return pred_mean,pred_cov
             else:

@@ -141,7 +141,7 @@ class MixtureDiagonalNormalDistribution(ProbabilityDistribution):
         ndim = means.shape[1]
         x = jnp.expand_dims(x,-2) #(n,1,d)
         yi1 = -0.5*jnp.sum(((x-means)/stds)**2,axis=-1) #(n,m)
-        yi2 = -jnp.sum(jnp.log(stds),axis=-1) #(m,)
+        yi2 = -0.5*jnp.sum(jnp.log(variances),axis=-1) #(m,)
         yi3 = -ndim/2*jnp.log(2*jnp.pi) #(,)
         yi = yi1 + yi2 + yi3 #(n,m)
         res = utils.logsumexp(yi,weights,axis=-1)

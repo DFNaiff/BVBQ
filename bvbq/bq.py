@@ -5,7 +5,12 @@ import numpy as np
 
 from . import kernelfunctions
 
-
+LOCS_25,WEIGHTS_25 = [jnp.array(x,dtype=jnp.float32) for x in \
+                   np.polynomial.hermite.hermgauss(25)]
+LOCS_50,WEIGHTS_50 = [jnp.array(x,dtype=jnp.float32) for x in \
+                   np.polynomial.hermite.hermgauss(50)]
+    
+    
 def monte_carlo_bayesian_quadrature(gp,distrib,nsamples,return_var=True):
     samples1 = distrib.sample(nsamples)
     samples2 = distrib.sample(nsamples)
@@ -22,10 +27,15 @@ def monte_carlo_bayesian_quadrature(gp,distrib,nsamples,return_var=True):
         return mean,var
 
 
-def separable_dmvn_bq(gp,mean,var,nhermite=30,return_var=True):
-    locs,weights = np.polynomial.hermite.hermgauss(nhermite)
-    locs = jnp.array(locs,dtype=jnp.float32)
-    weights = jnp.array(weights,dtype=jnp.float32)
+def separable_dmvn_bq(gp,mean,var,nhermite=25,return_var=True):
+    if nhermite == 25:
+        locs,weights = LOCS_25,WEIGHTS_25
+    elif nhermite == 50:
+        locs,weights = LOCS_50,WEIGHTS_50
+    else:
+        locs,weights = np.polynomial.hermite.hermgauss(nhermite)
+        locs = jnp.array(locs,dtype=jnp.float32)
+        weights = jnp.array(weights,dtype=jnp.float32)
     locs_ = locs.reshape(-1,1)*jnp.sqrt(var)*jnp.sqrt(2) + mean
     weights_ = jnp.expand_dims(weights,(-2,-1)) #(k,1,1)
     weights__ = jnp.expand_dims(weights,(0,-1)) #(1,k,1)
@@ -56,10 +66,15 @@ def separable_dmvn_bq(gp,mean,var,nhermite=30,return_var=True):
         return mean,var
 
 
-def separable_mixdmvn_bq(gp,means,variances,weights,nhermite=30,return_var=True):
-    hlocs,hweights = np.polynomial.hermite.hermgauss(nhermite)
-    hlocs = jnp.array(hlocs,dtype=jnp.float32)
-    hweights = jnp.array(hweights,dtype=jnp.float32)
+def separable_mixdmvn_bq(gp,means,variances,weights,nhermite=25,return_var=True):
+    if nhermite == 25:
+        hlocs,hweights = LOCS_25,WEIGHTS_25
+    elif nhermite == 50:
+        hlocs,hweights = LOCS_50,WEIGHTS_50
+    else:
+        hlocs,hweights = np.polynomial.hermite.hermgauss(nhermite)
+        hlocs = jnp.array(hlocs,dtype=jnp.float32)
+        hweights = jnp.array(hweights,dtype=jnp.float32)
     hlocs_ = jnp.expand_dims(hlocs,(-2,-1))*jnp.sqrt(variances)*jnp.sqrt(2) + means #(k,m,d)
     hweights_ = jnp.expand_dims(hweights,(-3,-2,-1)) #(k,1,1,1)
     hweights__ = jnp.expand_dims(hweights,(-2,-1)) #(k,1,1)
