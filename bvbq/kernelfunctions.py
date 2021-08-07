@@ -18,33 +18,37 @@ def kernel_function(x1,x2,theta=1.0,l=1.0,kind='sqe',
     #x1 : (...,d)
     #x2 : (...,d)
     #return : (...,)
-    if output == 'pairwise':
-        difference = jnp.expand_dims(x1,tuple(range(-1-(x2.ndim-1),-1))) - x2
-    elif output == 'diagonal':
-        difference = x1 - x2
-    else:
-        raise ValueError
-    if kind in ['sqe','matern12','matern32','matern52']:
-        r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
+    if output == 'pairwise': #(...,...*,d)
         if kind == 'sqe':
-            return theta*_sqe(r2)
-        if kind == 'matern12':
-            return theta*_matern12rhalf(r2)
-        elif kind == 'matern32':
-            return theta*_matern32rhalf(r2)
-        elif kind == 'matern52':
-            return theta*_matern52rhalf(r2)
-    elif kind in ['smatern12','smatern32','smatern52']:
-        r2 = (difference/l)**2 #(...,...*,d)
-        if kind == 'smatern12':
-            return theta*jnp.prod(_matern12rhalf(r2),axis=-1)
+            return _pairwise_kernel_function_sqe(x1,x2,theta,l)
+        elif kind == 'smatern12':
+            return _pairwise_kernel_function_smatern12(x1,x2,theta,l)
         elif kind == 'smatern32':
-            return theta*jnp.prod(_matern32rhalf(r2),axis=-1)
+            return _pairwise_kernel_function_smatern32(x1,x2,theta,l)
         elif kind == 'smatern52':
-            return theta*jnp.prod(_matern52rhalf(r2),axis=-1)
-    else:
-        raise NotImplementedError
-            
+            return _pairwise_kernel_function_smatern52(x1,x2,theta,l)
+        elif kind == 'matern12':
+            return _pairwise_kernel_function_matern12(x1,x2,theta,l)
+        elif kind == 'matern32':
+            return _pairwise_kernel_function_matern32(x1,x2,theta,l)
+        elif kind == 'matern52':
+            return _pairwise_kernel_function_matern52(x1,x2,theta,l)
+    elif output == 'diagonal':
+        if kind == 'sqe':
+            return _diagonal_kernel_function_sqe(x1,x2,theta,l)
+        elif kind == 'smatern12':
+            return _diagonal_kernel_function_smatern12(x1,x2,theta,l)
+        elif kind == 'smatern32':
+            return _diagonal_kernel_function_smatern32(x1,x2,theta,l)
+        elif kind == 'smatern52':
+            return _diagonal_kernel_function_smatern52(x1,x2,theta,l)
+        elif kind == 'matern12':
+            return _diagonal_kernel_function_matern12(x1,x2,theta,l)
+        elif kind == 'matern32':
+            return _diagonal_kernel_function_matern32(x1,x2,theta,l)
+        elif kind == 'matern52':
+            return _diagonal_kernel_function_matern52(x1,x2,theta,l)
+
 
 def kernel_function_separated(x1,x2,theta=1.0,l=1.0,kind='sqe',
                               output='pairwise'):
@@ -77,6 +81,42 @@ def _diagonal_kernel_function_sqe(x1,x2,theta,l):
     difference = x1 - x2
     r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
     return theta*_sqe(r2)
+
+@jax.jit
+def _diagonal_kernel_function_matern12(x1,x2,theta,l):
+    difference = x1 - x2
+    r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
+    return theta*_matern12rhalf(r2)
+
+@jax.jit
+def _diagonal_kernel_function_matern32(x1,x2,theta,l):
+    difference = x1 - x2
+    r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
+    return theta*_matern32rhalf(r2)
+
+@jax.jit
+def _diagonal_kernel_function_matern52(x1,x2,theta,l):
+    difference = x1 - x2
+    r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
+    return theta*_matern52rhalf(r2)
+
+@jax.jit
+def _pairwise_kernel_function_matern12(x1,x2,theta,l):
+    difference = _make_pairwise_difference(x1,x2)
+    r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
+    return theta*_matern12rhalf(r2)
+
+@jax.jit
+def _pairwise_kernel_function_matern32(x1,x2,theta,l):
+    difference = _make_pairwise_difference(x1,x2)
+    r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
+    return theta*_matern32rhalf(r2)
+
+@jax.jit
+def _pairwise_kernel_function_matern52(x1,x2,theta,l):
+    difference = _make_pairwise_difference(x1,x2)
+    r2 = jnp.sum((difference/l)**2,axis=-1) #(...,...*)
+    return theta*_matern52rhalf(r2)
 
 @jax.jit
 def _pairwise_kernel_function_sqe(x1,x2,theta,l):
