@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import functools
 import collections
+import math
 
 import numpy as np
 import torch
-import dict_minimize.jax_api
+import dict_minimize.torch_api
 
 from . import kernelfunctions
 from . import utils
@@ -23,9 +24,9 @@ class SimpleGP(object):
                  zeromax=None):
         self.ndim = ndim
         self.kind = kind
-        self.mean = torch.tensor(mean) #THIS IS THE MEAN AFTER ZEROMAX TRANSFORMATION.
-                                    #IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
-                                    #THIS WARNING
+        self.mean = mean #THIS IS THE MEAN AFTER ZEROMAX TRANSFORMATION.
+                         #IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
+                         #THIS WARNING
         self.theta = torch.tensor(theta)
         self.min_jitter = min_jitter
         if noise <= 1e-20:
@@ -44,10 +45,11 @@ class SimpleGP(object):
         self.zeromax = zeromax
         self.ymax = 0.0 #Neutral element in sum
         
-    def set_data(self,X,y,empirical_params=False):
+    def set_data(self,X,y,empirical_params=False,istensor=False):
         ndata = X.shape[0]
-        X = torch.tensor(X)
-        y = torch.tensor(y)
+        if not istensor:
+            X = torch.tensor(X,dtype=torch.float32)
+            y = torch.tensor(y,dtype=torch.float32)
         if len(y.shape) == 1:
             y = torch.unsqueeze(y,-1) #(d,1)
         if self.zeromax:
@@ -66,147 +68,133 @@ class SimpleGP(object):
         self.y_ = y - self.ymax
         self.kernel_matrix = kernel_matrix #Noised already
         self.upper_chol_matrix = upper_chol_matrix
-        self.make_mean_grad()
     
-    def predict(self,xpred,return_cov=True,onlyvar=False):
+    def predict(self,xpred,return_cov=True,onlyvar=False,
+                istensor=False):
+        if not istensor:
+            xpred = torch.tensor(xpred,dtype=torch.float32)
         s = xpred.shape
         d = len(s)
         if d == 1:
-            xpred = jnp.expand_dims(xpred,0)
+            xpred = torch.unsqueeze(xpred,0)
             res = self._predict(xpred,return_cov=return_cov,onlyvar=onlyvar) #No difference for one item
-            if not return_cov:
-                mean = res
-                return mean[0][0] #For gradient taking
-            else:
-                mean,var = res
-                return mean.item(),var.item()
         elif d == 2:
-            return self._predict(xpred,return_cov=return_cov,onlyvar=onlyvar)
+            res = self._predict(xpred,return_cov=return_cov,onlyvar=onlyvar)
         else: #some reshaping trick in order
             #[...,d] -> [n,d]
             print("If tensor has more than 2 dimensions, only diagonal of covariance is returned")
             onlyvar = True
             n = int(np.prod((s[:-1])))
             xpred_r = xpred.reshape(n,s[-1])
+            print(xpred_r.shape)
             res_r = self._predict(xpred_r,return_cov=return_cov,onlyvar=onlyvar)
             if not return_cov:
                 mean_r = res_r
                 mean = mean_r.reshape(*(s[:-1]))
-                return mean
+                res = mean
             else:
                 mean_r,var_r = res_r
                 mean = mean_r.reshape(*(s[:-1]))
                 var = var_r.reshape(*(s[:-1]))
-                return mean,var
+                res = mean,var
+        if not return_cov:
+            mean = res
+            if not istensor:
+                mean = np.array(mean)
+            return mean
+        else:
+            mean,cov = res
+            if not istensor:
+                mean,cov = np.array(mean),np.array(cov)
+            return mean,cov
         
     def _predict(self,xpred,return_cov=True,onlyvar=False):
         #a^T K^-1 b = a^T (U^T U)^-1 b= (U^-T a)^T (U^-T b)
         if len(xpred.shape) == 1:
-            xpred = jnp.expand_dims(xpred,0) #(n,d)
+            xpred = torch.unsqueeze(xpred,0) #(n,d)
         kxpred = self.make_kernel_matrix(self.X,xpred,self.theta,self.lengthscale) #(m,n)
         #,lower=False,trans='T'
-        y_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
-                                               self.y_-self.mean,
-                                               trans='T') #(m,1)
-        kxpred_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
-                                                    kxpred,
-                                                    trans='T') #(m,n)
-        pred_mean = (kxpred_.transpose()@y_) + self.mean + self.ymax
+        y_,_ = torch.triangular_solve(self.y_-self.mean,
+                                      self.upper_chol_matrix,
+                                      upper=True,
+                                      transpose=True) #(m,1)
+        kxpred_,_ = torch.triangular_solve(kxpred,
+                                           self.upper_chol_matrix,
+                                           upper=True,
+                                           transpose=True) #(m,n)
+        pred_mean = (kxpred_.transpose(-2,-1)@y_) + self.mean + self.ymax
+        pred_mean = torch.squeeze(pred_mean,-1)
         if not return_cov:
             return pred_mean
         else:
-            Kxpxp = self.make_kernel_matrix(xpred,xpred,self.theta,self.lengthscale)
-            Kxpxp = self.noisify_kernel_matrix(Kxpxp,self.noise)
-            pred_cov = Kxpxp - \
-                       kxpred.transpose()@kxpred_
             if not onlyvar:
+                Kxpxp = self.make_kernel_matrix(xpred,xpred,self.theta,self.lengthscale)
+                Kxpxp = self.noisify_kernel_matrix(Kxpxp,self.noise)
+                pred_cov = Kxpxp - \
+                           kxpred_.transpose(-2,-1)@kxpred_
                 return pred_mean,pred_cov
             else:
-                pred_var = jnp.diag(pred_cov)
+                Kxpxp = self.make_kernel_matrix(xpred,xpred,self.theta,self.lengthscale,
+                                                diagonal=True)
+                Kxpxp += self.noise**2 + self.min_jitter
+                pred_var = Kxpxp - (kxpred_.transpose(-2,-1)**2).sum(dim=-1)
                 return pred_mean,pred_var
     
     def loo_mean_prediction(self,xpred): #Only return mean
-        if len(xpred.shape) == 1:
-            flatten_at_end = True
-            xpred = jnp.expand_dims(xpred,0) #(n,d)
-        else:
-            flatten_at_end = False
-        kxpred = self.make_kernel_matrix(self.X,xpred,self.theta,self.lengthscale) #(m,n)
-        means = []
-        for i in range(self.ndata):
-            drop_inds = jnp.array([i])
-            kxpreddown = jnp.delete(kxpred,drop_inds,axis=0) #(m-1,n)
-            Uaux = np.array(utils.delete_submatrix(self.upper_chol_matrix,drop_inds))
-            Uvec = np.array(jnp.delete(self.upper_chol_matrix[drop_inds,:],drop_inds,axis=1))
-            Udown = jnp.array(utils.rankn_update_upper(Uaux,Uvec.transpose())) #(m-1,m-1)
-            ydown = jnp.delete(self.y_,drop_inds,axis=0) #(m-1,1)
-            ydown_ = jax.scipy.linalg.solve_triangular(Udown,
-                                                   ydown-self.mean,
-                                                   trans='T') #(m-1,1)
-            kxpreddown_ = jax.scipy.linalg.solve_triangular(Udown,
-                                                        kxpreddown,
-                                                        trans='T') #(m-1,n)
-            pred_mean_down = (kxpreddown_.transpose()@ydown_) + self.mean #(n,1)
-            means.append(pred_mean_down)
-        means = jnp.hstack(means)
-        if flatten_at_end:
-            means = means.flatten()
-        return means
-            
-    def make_mean_grad(self):
-        f = functools.partial(self.predict,return_cov=False)
-        mean_grad = jax.grad(f)
-        self.mean_grad = mean_grad
+        raise NotImplementedError
         
     def optimize_params(self,fixed_params=[],
                         method='L-BFGS-B',
                         tol=1e-4,options={'disp':True}):
-        func_and_grad = jax.value_and_grad(self.loglikelihood_wrapper)
         params = {'raw_theta':self._raw_theta,
                   'mean':self.mean,
                   'raw_lengthscale':self._raw_lengthscale,
                   'raw_noise':self._raw_noise}
         params_list = set(params.keys())
-        print(params_list)
-        print(fixed_params)
-        print(self.fixed_params)
         for param in params_list:
+            if param[:4] == 'raw_':
+                param = param[4:]
             if param in fixed_params or param in self.fixed_params:
                 params.pop(param,None)
                 params.pop('raw_'+param,None)
         params = collections.OrderedDict(params)
-        res = dict_minimize.jax_api.minimize(func_and_grad, params,
-                                             method=method,
-                                             tol=tol,
-                                             options=options)
+        dwrapper = utils.dict_minimize_torch_wrapper(self.loglikelihood_wrapper)
+        res = dict_minimize.torch_api.minimize(dwrapper,
+                                               params,
+                                               method=method,
+                                               tol=tol,
+                                               options=options)
+        res = dict([(key,value.detach()) for key,value in res.items()])
         self.theta = self.derawfy(res.get('raw_theta',self._raw_theta))
         self.noise = self.derawfy(res.get('raw_noise',self._raw_noise))
         self.mean = res.get('mean',self.mean)
         self.lengthscale = self.derawfy(res.get('raw_lengthscale',self._raw_lengthscale))
-        self.set_data(self.X,self.y)
+        self.set_data(self.X,self.y,istensor=True)
         return res
     
     def gradient_step_params(self,fixed_params=[],
                              alpha=1e-1,niter=1):
-        func_and_grad = jax.value_and_grad(self.loglikelihood_wrapper)
-        params = {'raw_theta':self._raw_theta,
-                  'mean':self.mean,
-                  'raw_lengthscale':self._raw_lengthscale,
-                  'raw_noise':self._raw_noise}
-        for param in params:
-            if param in fixed_params or param in self.fixed_params:
-                params.pop(param,None)
-                params.pop('raw_'+param,None)
-        params = collections.OrderedDict(params)
-        for i in range(niter):
-            _,grads = func_and_grad(params)
-            for key,value in grads.items():
-                params[key] -= alpha*value
-        self.theta = self.derawfy(params.get('raw_theta',self._raw_theta))
-        self.noise = self.derawfy(params.get('raw_noise',self._raw_noise))
-        self.mean = params.get('mean',self.mean)
-        self.lengthscale = self.derawfy(params.get('raw_lengthscale',self._raw_lengthscale))
-        self.set_data(self.X,self.y)
+        raise NotImplementedError
+#        func_and_grad = jax.value_and_grad(self.loglikelihood_wrapper)
+#        params = {'raw_theta':self._raw_theta,
+#                  'mean':self.mean,
+#                  'raw_lengthscale':self._raw_lengthscale,
+#                  'raw_noise':self._raw_noise}
+#        for param in params:
+#            if param in fixed_params or param in self.fixed_params:
+#                params.pop(param,None)
+#                params.pop('raw_'+param,None)
+#                
+#        params = collections.OrderedDict(params)
+#        for i in range(niter):
+#            _,grads = func_and_grad(params)
+#            for key,value in grads.items():
+#                params[key] -= alpha*value
+#        self.theta = self.derawfy(params.get('raw_theta',self._raw_theta))
+#        self.noise = self.derawfy(params.get('raw_noise',self._raw_noise))
+#        self.mean = params.get('mean',self.mean)
+#        self.lengthscale = self.derawfy(params.get('raw_lengthscale',self._raw_lengthscale))
+#        self.set_data(self.X,self.y)
     
     def loglikelihood_wrapper(self,params):
         theta = self.derawfy(params.get('raw_theta',self._raw_theta))
@@ -219,42 +207,51 @@ class SimpleGP(object):
         kernel_matrix_ = self.make_kernel_matrix(self.X,self.X,theta,lengthscale)
         kernel_matrix = self.noisify_kernel_matrix(kernel_matrix_,noise)
         upper_chol_matrix = self.make_cholesky(kernel_matrix)
-        y_ = jax.scipy.linalg.solve_triangular(upper_chol_matrix,
-                                               self.y_-mean,
-                                               trans='T') #(m,1)
-        term1 = -0.5*jnp.sum(y_**2)
-        term2 = -jnp.sum(jnp.log(jnp.diag(upper_chol_matrix)))
-        term3 = -0.5*self.ndata*jnp.log(2*np.pi)
+        y_,_ = torch.triangular_solve(self.y_-mean,
+                                    upper_chol_matrix,
+                                    upper=True,
+                                    transpose=True) #(m,1)
+        term1 = -0.5*torch.sum(y_**2)
+        term2 = -torch.sum(torch.log(torch.diagonal(upper_chol_matrix)))
+        term3 = -0.5*self.ndata*math.log(2*np.pi)
         return term1 + term2 + term3
         
-    def update(self,Xnew,ynew):
+    def current_loglikelihood(self):
+        return self.loglikelihood(self.theta,self.lengthscale,self.noise,self.mean)
+    
+    def update(self,Xnew,ynew,istensor=False):
         nnew = Xnew.shape[0]
+        if not istensor:
+            Xnew = torch.tensor(Xnew,dtype=torch.float32)
+            ynew = torch.tensor(ynew,dtype=torch.float32)
         if len(ynew.shape) == 1:
-            ynew = jnp.expand_dims(ynew,-1) #(d,1)
+            ynew = torch.unsqueeze(ynew,-1) #(d,1)
         if self.zeromax:
-            self.ymax = max(jnp.max(ynew),self.ymax)
+            self.ymax = max(torch.max(ynew),self.ymax)
         assert(ynew.shape[0] == nnew)
         assert(ynew.shape[1] == 1)
         assert(Xnew.shape[1] == self.ndim)
-        Xup = jnp.vstack([self.X,Xnew])
-        yup = jnp.vstack([self.y_,ynew])
+        Xup = torch.vstack([self.X,Xnew])
+        yup = torch.vstack([self.y_,ynew])
         K11 = self.kernel_matrix
         K12 = self.make_kernel_matrix(self.X,Xnew,
                                       self.theta,
                                       self.lengthscale)
-        K21 = K12.transpose()
+        K21 = K12.transpose(-2,-1)
         K22_ = self.make_kernel_matrix(Xnew,Xnew,
                                       self.theta,
                                       self.lengthscale)
         K22 = self.noisify_kernel_matrix(K22_,self.noise)
-        K = jnp.block([[K11,K12],[K21,K22]])
+        K = torch.vstack([torch.hstack([K11,K12]),
+                          torch.hstack([K21,K22])])
         U11 = self.upper_chol_matrix
-        U12 = jax.scipy.linalg.solve_triangular(U11,
-                                                K12,
-                                                trans='T') #(m,1)
-        U21 = jnp.zeros(K21.shape)
-        U22 = jax.scipy.linalg.cholesky(K22 - U12.transpose()@U12)
-        U = jnp.block([[U11,U12],[U21,U22]])
+        U12,_ = torch.triangular_solve(K12,U11,
+                                       upper=True,
+                                       transpose=True) #(m,1)
+        U21 = torch.zeros(K21.shape)
+        U22 = torch.linalg.cholesky(K22 - U12.transpose(-2,-1)@U12).transpose(-2,-1)
+        U = torch.vstack([torch.hstack([U11,U12]),
+                          torch.hstack([U21,U22])])
         self.ndata += nnew
         self.X = Xup
         self.y_ = yup - self.ymax
@@ -262,27 +259,7 @@ class SimpleGP(object):
         self.upper_chol_matrix = U
         
     def downdate(self,drop_inds):
-        drop_inds = jnp.array(drop_inds)
-        ndrop = len(drop_inds)
-        ndata = self.ndata
-        ndown = ndata - ndrop
-        swap_inds = jnp.hstack([jnp.delete(jnp.arange(ndata),drop_inds),drop_inds])
-        dropped_inds = swap_inds[:ndown]
-        Xdown = self.X[dropped_inds,:]
-        ydown = self.y_[dropped_inds,:]
-        if self.zeromax:
-            self.ymax = jnp.max(ydown)
-        Kdown = self.kernel_matrix[dropped_inds,:][:,dropped_inds]
-        U = self.upper_chol_matrix
-        Uaux = np.array(utils.delete_submatrix(U,drop_inds))
-        Uvec = np.array(jnp.delete(U[drop_inds,:],drop_inds,axis=1))
-        Udown = jnp.array(utils.rankn_update_upper(Uaux,Uvec.transpose()))
-        self.ndata = ndown
-        self.X = Xdown
-        self.y_ = ydown - self.ymax
-        self.kernel_matrix = Kdown
-        self.upper_chol_matrix = Udown
-        return dropped_inds
+        raise NotImplementedError
     
     def kernel_function(self,X1,X2,diagonal=False):
         return self.make_kernel_matrix(X1,X2,
@@ -293,33 +270,37 @@ class SimpleGP(object):
     def make_kernel_matrix(self,X1,X2,theta,lengthscale,
                            diagonal=False):
         output = 'pairwise' if not diagonal else 'diagonal'
-        K = kernelfunctions.kernel_function(X1,X2,kind=self.kind,
-                                            output=output,
+        K = kernelfunctions.kernel_function(X1,X2,
                                             theta=theta,
-                                            l=lengthscale)
+                                            l=lengthscale,
+                                            kind=self.kind,
+                                            output=output)
         return K
     
     def noisify_kernel_matrix(self,kernel_matrix,noise):
-        K_ = utils.jittering(kernel_matrix,noise**2,self.min_jitter)
+        K_ = utils.jittering(kernel_matrix,noise**2+self.min_jitter)
         return K_
         
     def make_cholesky(self,K):
-        U = jax.scipy.linalg.cholesky(K)
+        U = torch.linalg.cholesky(K).transpose(-2,-1) #Lower to upper
         return U
     
-    def make_inverse(self,K):
-        return jax.scipy.linalg.inv(K)
+#    def make_inverse(self,K):
+#        return jax.scipy.linalg.inv(K)
     
     def set_params_empirical(self,X,y):
-        mean = jnp.mean(y)
-        theta = jnp.std(y)
-        y_ = 2*(y - jnp.min(y))/(jnp.max(y) - jnp.min(y)) - 1
-        ay_ = jnp.arccos(y_)
-        omega = jnp.linalg.lstsq(np.hstack([np.ones((X.shape[0],1)),X]),ay_,rcond=None)[0][1:]
-        l = omega/(2*jnp.pi)
-        self.mean = jnp.array(mean)
-        self.theta = jnp.array(theta)
-        self.l = jnp.array(l)
+        mean = torch.mean(y)
+        theta = torch.std(y)
+        y_ = 2*(y - torch.min(y))/(torch.max(y) - torch.min(y)) - 1
+        ay_ = torch.arccos(y_)
+        omega = torch.linalg.lstsq(np.hstack([np.ones((X.shape[0],1)),X]),ay_,rcond=None)[0][1:]
+        l = omega/(2*math.pi)
+        if 'mean' not in self.fixed_params:
+            self.mean = mean
+        if 'theta' not in self.fixed_params:
+            self.theta = theta
+        if 'lengthscale' not in self.fixed_params:
+            self.lengthscale = l
         
     def rawfy(self,x):
         return torch.log(torch.exp(x)-1) #invsoftmax
@@ -340,6 +321,10 @@ class SimpleGP(object):
         self.fixed_params.discard('mean')
     
     @property
+    def mean(self):
+        return self._mean
+        
+    @property
     def theta(self):
         return self.derawfy(self._raw_theta)
     
@@ -354,7 +339,11 @@ class SimpleGP(object):
     @theta.setter
     def theta(self,x):
         self._raw_theta = self.rawfy(x)
-    
+
+    @mean.setter
+    def mean(self,x):
+        self._mean = torch.tensor(x)
+        
     @lengthscale.setter
     def lengthscale(self,x):
         self._raw_lengthscale = self.rawfy(x)
