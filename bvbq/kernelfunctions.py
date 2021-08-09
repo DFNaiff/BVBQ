@@ -128,14 +128,14 @@ def _pairwise_kernel_function_sqe(x1,x2,theta,l):
 def _diagonal_kernel_function_smatern12(x1,x2,theta,l):
     difference = x1 - x2
     r2 = (difference/l)**2
-    return theta*jnp.prod(*_matern12rhalf(r2),axis=-1)
+    return theta*jnp.prod(_matern12rhalf(r2),axis=-1)
 
 
 @jax.jit
 def _diagonal_kernel_function_smatern32(x1,x2,theta,l):
     difference = x1 - x2
     r2 = (difference/l)**2
-    return theta*jnp.prod(*_matern32rhalf(r2),axis=-1)
+    return theta*jnp.prod(_matern32rhalf(r2),axis=-1)
 
 
 @jax.jit
@@ -148,21 +148,21 @@ def _diagonal_kernel_function_smatern52(x1,x2,theta,l):
 def _pairwise_kernel_function_smatern12(x1,x2,theta,l):
     difference = _make_pairwise_difference(x1,x2)
     r2 = (difference/l)**2
-    return theta*jnp.prod(*_matern12rhalf(r2),axis=-1)
+    return theta*jnp.prod(_matern12rhalf(r2),axis=-1)
 
 
 @jax.jit
 def _pairwise_kernel_function_smatern32(x1,x2,theta,l):
     difference = _make_pairwise_difference(x1,x2)
     r2 = (difference/l)**2
-    return theta*jnp.prod(*_matern32rhalf(r2),axis=-1)
+    return theta*jnp.prod(_matern32rhalf(r2),axis=-1)
 
 
 @jax.jit
 def _pairwise_kernel_function_smatern52(x1,x2,theta,l):
     difference = _make_pairwise_difference(x1,x2)
     r2 = (difference/l)**2
-    return theta*jnp.prod(*_matern52rhalf(r2),axis=-1)
+    return theta*jnp.prod(_matern52rhalf(r2),axis=-1)
 
 
 @jax.jit
@@ -230,7 +230,7 @@ def _pairwise_kernel_function_separated_smatern52(x1,x2,theta,l):
 
 
 @jax.jit
-def _make_pairwise_difference(x1,x2,l):
+def _make_pairwise_difference(x1,x2):
     difference = jnp.expand_dims(x1,tuple(range(-1-(x2.ndim-1),-1))) - x2
     return difference
 
@@ -240,7 +240,6 @@ def _sqe(r2):
     return jnp.exp(-0.5*r2)
 
 
-@jax.custom_jvp
 @jax.jit
 def _matern12rhalf(r2):
     r = jnp.sqrt(r2)

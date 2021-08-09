@@ -9,6 +9,7 @@ import dict_minimize.jax_api
 
 from . import kernelfunctions
 from . import utils
+from . import gp_utils
 
 
 class SimpleGP(object):
@@ -53,8 +54,6 @@ class SimpleGP(object):
             y = jnp.expand_dims(y,-1) #(d,1)
         if self.zeromax:
             self.ymax = jnp.max(y)
-            print(self.ymax)
-            print('--')
         assert(y.shape[0] == ndata)
         assert(y.shape[1] == 1)
         assert(X.shape[1] == self.ndim)
@@ -105,27 +104,61 @@ class SimpleGP(object):
         #a^T K^-1 b = a^T (U^T U)^-1 b= (U^-T a)^T (U^-T b)
         if len(xpred.shape) == 1:
             xpred = jnp.expand_dims(xpred,0) #(n,d)
-        kxpred = self.make_kernel_matrix(self.X,xpred,self.theta,self.lengthscale) #(m,n)
-        #,lower=False,trans='T'
-        y_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
-                                               self.y_-self.mean,
-                                               trans='T') #(m,1)
-        kxpred_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
-                                                    kxpred,
-                                                    trans='T') #(m,n)
-        pred_mean = (kxpred_.transpose()@y_) + self.mean + self.ymax
         if not return_cov:
+            pred_mean = gp_utils.predict_mean(xpred,self.X,self.y_,
+                                              self.theta,self.lengthscale,
+                                              self.mean,
+                                              self.upper_chol_matrix,self.kind)
+            pred_mean = pred_mean + self.ymax
             return pred_mean
         else:
-            Kxpxp = self.make_kernel_matrix(xpred,xpred,self.theta,self.lengthscale)
-            Kxpxp = self.noisify_kernel_matrix(Kxpxp,self.noise)
-            pred_cov = Kxpxp - \
-                       kxpred_.transpose()@kxpred_
             if not onlyvar:
+                pred_mean,pred_cov = gp_utils.predict_mean_and_cov(xpred,
+                                                                   self.X,
+                                                                   self.y_,
+                                                                   self.theta,
+                                                                   self.lengthscale,
+                                                                   self.mean,
+                                                                   self.upper_chol_matrix,
+                                                                   self.noise,
+                                                                   self.min_jitter,
+                                                                   self.kind)
+                pred_mean = pred_mean + self.ymax
                 return pred_mean,pred_cov
             else:
-                pred_var = jnp.diag(pred_cov)
+                pred_mean,pred_var = gp_utils.predict_mean_and_var(xpred,
+                                                                   self.X,
+                                                                   self.y_,
+                                                                   self.theta,
+                                                                   self.lengthscale,
+                                                                   self.mean,
+                                                                   self.upper_chol_matrix,
+                                                                   self.noise,
+                                                                   self.min_jitter,
+                                                                   self.kind)
+                pred_mean = pred_mean + self.ymax
                 return pred_mean,pred_var
+#        kxpred = self.make_kernel_matrix(self.X,xpred,self.theta,self.lengthscale) #(m,n)
+#        #,lower=False,trans='T'
+#        y_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
+#                                               self.y_-self.mean,
+#                                               trans='T') #(m,1)
+#        kxpred_ = jax.scipy.linalg.solve_triangular(self.upper_chol_matrix,
+#                                                    kxpred,
+#                                                    trans='T') #(m,n)
+#        pred_mean = (kxpred_.transpose()@y_) + self.mean + self.ymax
+#        if not return_cov:
+#            return pred_mean
+#        else:
+#            Kxpxp = self.make_kernel_matrix(xpred,xpred,self.theta,self.lengthscale)
+#            Kxpxp = self.noisify_kernel_matrix(Kxpxp,self.noise)
+#            pred_cov = Kxpxp - \
+#                       kxpred_.transpose()@kxpred_
+#            if not onlyvar:
+#                return pred_mean,pred_cov
+#            else:
+#                pred_var = jnp.diag(pred_cov)
+#                return pred_mean,pred_var
     
     def loo_mean_prediction(self,xpred): #Only return mean
         if len(xpred.shape) == 1:
@@ -169,9 +202,6 @@ class SimpleGP(object):
                   'raw_lengthscale':self._raw_lengthscale,
                   'raw_noise':self._raw_noise}
         params_list = set(params.keys())
-        print(params_list)
-        print(fixed_params)
-        print(self.fixed_params)
         for param in params_list:
             if param in fixed_params or param in self.fixed_params:
                 params.pop(param,None)
@@ -218,16 +248,8 @@ class SimpleGP(object):
         return -self.loglikelihood(theta,lengthscale,noise,mean) #Used for maximization in minimizer
     
     def loglikelihood(self,theta,lengthscale,noise,mean):
-        kernel_matrix_ = self.make_kernel_matrix(self.X,self.X,theta,lengthscale)
-        kernel_matrix = self.noisify_kernel_matrix(kernel_matrix_,noise)
-        upper_chol_matrix = self.make_cholesky(kernel_matrix)
-        y_ = jax.scipy.linalg.solve_triangular(upper_chol_matrix,
-                                               self.y_-mean,
-                                               trans='T') #(m,1)
-        term1 = -0.5*jnp.sum(y_**2)
-        term2 = -jnp.sum(jnp.log(jnp.diag(upper_chol_matrix)))
-        term3 = -0.5*self.ndata*jnp.log(2*np.pi)
-        return term1 + term2 + term3
+        return gp_utils.loglikelihood(self.X,self.y_,theta,lengthscale,noise,mean,
+                                      self.min_jitter,self.kind)
         
     def update(self,Xnew,ynew):
         nnew = Xnew.shape[0]
@@ -291,6 +313,7 @@ class SimpleGP(object):
                                        self.theta,
                                        self.lengthscale,
                                        diagonal=diagonal)
+    
     def make_kernel_matrix(self,X1,X2,theta,lengthscale,
                            diagonal=False):
         output = 'pairwise' if not diagonal else 'diagonal'
@@ -301,7 +324,7 @@ class SimpleGP(object):
         return K
     
     def noisify_kernel_matrix(self,kernel_matrix,noise):
-        K_ = utils.jittering(kernel_matrix,noise**2,self.min_jitter)
+        K_ = utils.jittering(kernel_matrix,noise**2+self.min_jitter)
         return K_
         
     def make_cholesky(self,K):

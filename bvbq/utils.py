@@ -26,17 +26,20 @@ def nspherical_to_cartesian(r,theta,*phi):
     return x
 
 
-def jittering(M,sigma,min_jitter=1e-6):
-    return M + (sigma+min_jitter)*jnp.eye(M.shape[0]) #inneficient
+@jax.jit
+def jittering(M,sigma):
+    diag_elements = jnp.diag_indices_from(M)
+    Mj = jax.ops.index_update(M,diag_elements,M.diagonal()+sigma)
+    return Mj
 
-
+@jax.jit
 def woodbudy_identity(Ainv,Cinv,U,V):
     #Inverse of (A+UCV), with Ainv (and Cinv) known
     M = jax.scipy.linalg.inv(Cinv + V@Ainv@U)
     K = Ainv - Ainv@U@M@V@Ainv
     return K
 
-    
+@jax.jit
 def block_matrix_inversion(Ainv,D,B,C):
     #Inverse of 
     #[[A B]
@@ -95,4 +98,17 @@ def lb_mvn_mixmvn_cross_entropy(mean,var,mixmeans,mixvars,mixweights,logdelta=-2
     w = mixweights*jnp.prod(jnp.sqrt(2*jnp.pi*(var + mixvars)),axis=-1)
     logz = -0.5*jnp.sum(((mean-mixmeans)/(var + mixvars))**2,axis=-1)
     res = -jnp.log(jnp.sum(w*jnp.exp(logz)) + jnp.exp(logdelta))
+    return res
+
+
+@jax.jit
+def dmvn_samples_from_zsamples(mean,var,zsamples):
+    std = jnp.sqrt(var)
+    return mean + std*zsamples
+
+
+@jax.jit
+def mixdmvn_samples_from_zsamples_catinds(means,variances,z,catinds):
+    stds = jnp.sqrt(variances)
+    res = means[catinds,:] + stds[catinds,:]*z
     return res

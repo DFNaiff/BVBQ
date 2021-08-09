@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 
 from . import utils
+from . import distributions_utils
 
 
 class ProbabilityDistribution(abc.ABC):
@@ -52,12 +53,6 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
                 x,self.mean,self.var)
         return res
     
-#    @functools.partial(jax.jit,static_argnums=(0,))
-#    def _logprob(self,x,mean,std,ndim):
-#        res = -0.5*jnp.sum(((x-mean)/std)**2,axis=-1) \
-#              -jnp.sum(jnp.log(std)) - ndim/2*jnp.log(2*jnp.pi)
-#        return res
-    
     @staticmethod
     @jax.jit
     def logprob_(x,mean,var):
@@ -73,20 +68,11 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
                 n,self.mean,self.var,subkey)
         return res
     
-##     @functools.partial(jax.jit,static_argnums=(0,1))
-#    def _sample(self,n,mean,std):
-#        ndim = mean.shape[0]
-#        subkey = self.split_key()
-#        z = jax.random.normal(subkey,shape=(n,ndim))
-#        res = mean + std*z
-#        return res
-    
     @staticmethod
     def sample_(n,mean,var,subkey):
-        std = jnp.sqrt(var)
         ndim = mean.shape[0]
         z = jax.random.normal(subkey,shape=(n,ndim))
-        res = mean + std*z
+        res = utils.dmvn_samples_from_zsamples(mean,var,z)
         return res
     
     def make_mixture(self):
@@ -101,7 +87,8 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
 
     def analytical_entropy(self):
         return 0.5*jnp.sum(jnp.log(2*jnp.pi*jnp.e*self.var))
-    
+
+
 class MixtureDiagonalNormalDistribution(ProbabilityDistribution):
     def __init__(self,means,variances,weights,seed=random.randint(1,1000)):
         super().__init__(seed)
@@ -120,19 +107,6 @@ class MixtureDiagonalNormalDistribution(ProbabilityDistribution):
         res = MixtureDiagonalNormalDistribution.logprob_(
                 x,self.means,self.variances,self.weights)
         return res
-    
-#    @functools.partial(jax.jit,static_argnums=(0,))
-#    def _logprob(self,x,means,stds,weights):
-#        ndim = means.shape[1]
-#        x = jnp.expand_dims(x,-2) #(n,1,d)
-#        yi1 = -0.5*jnp.sum(((x-means)/stds)**2,axis=-1) #(n,m)
-#        yi2 = -jnp.sum(jnp.log(stds),axis=-1) #(m,)
-#        yi3 = -ndim/2*jnp.log(2*jnp.pi) #(,)
-#        yi = yi1 + yi2 + yi3 #(n,m)
-#        ymax = jnp.max(yi,axis=-1,keepdims=True) #(n,1)
-#        sumexp = jnp.sum(weights*jnp.exp(yi-ymax),axis=-1)
-#        res = jnp.squeeze(ymax,axis=-1) + jnp.log(sumexp) #(n,)
-#        return res
 
     @staticmethod
     @jax.jit
@@ -167,11 +141,10 @@ class MixtureDiagonalNormalDistribution(ProbabilityDistribution):
     
     @staticmethod
     def sample_(n,means,variances,weights,subkey1,subkey2):
-        stds = jnp.sqrt(variances)
         nmixtures,ndim = means.shape
         catinds = jax.random.choice(subkey1,nmixtures,shape=(n,),p=weights)
         z = jax.random.normal(subkey2,shape=(n,ndim))
-        res = means[catinds,:] + stds[catinds,:]*z
+        res = utils.mixdmvn_samples_from_zsamples_catinds(means,variances,z,catinds)
         return res
     
     @property
