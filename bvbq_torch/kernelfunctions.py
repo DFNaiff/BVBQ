@@ -27,23 +27,23 @@ def kernel_function(x1,x2,kind='sqe',
     else:
         raise ValueError
     if kind in ['sqe','matern12','matern32','matern52']:
-        r2 = torch.sum((difference/l)**2,dim=-1) #(...,...*)
+        r = torch.linalg.vector_norm(difference/l,dim=-1)
         if kind == 'sqe':
-            return theta*sqe(r2)
+            return theta*sqe(r)
         if kind == 'matern12':
-            return theta*matern12rhalf(r2)
+            return theta*matern12(r)
         elif kind == 'matern32':
-            return theta*matern32rhalf(r2)
+            return theta*matern32(r)
         elif kind == 'matern52':
-            return theta*matern52rhalf(r2)
+            return theta*matern52(r)
     elif kind in ['smatern12','smatern32','smatern52']:
-        r2 = (difference/l)**2 #(...,...*,d)
+        r = torch.abs(difference/l)
         if kind == 'smatern12':
-            return theta*torch.prod(matern12rhalf(r2),dim=-1)
+            return theta*torch.prod(matern12(r),dim=-1)
         elif kind == 'smatern32':
-            return theta*torch.prod(matern32rhalf(r2),dim=-1)
+            return theta*torch.prod(matern32(r),dim=-1)
         elif kind == 'smatern52':
-            return theta*torch.prod(matern52rhalf(r2),dim=-1)
+            return theta*torch.prod(matern52(r),dim=-1)
     else:
         raise NotImplementedError
             
@@ -62,32 +62,29 @@ def kernel_function_separated(x1,x2,theta=1.0,l=1.0,kind='sqe',
         difference = x1 - x2 #(...,d)
     else:
         raise ValueError
-    r2 = (difference/l)**2 #(...,...*,d) or (...,d)
-    d = r2.shape[-1]
+    r = torch.abs(difference/l)
+    d = r.shape[-1]
     if kind == 'sqe':
-        return theta**(1.0/d)*sqe(r2)
+        return theta**(1.0/d)*sqe(r)
     elif kind == 'smatern12':
-        return theta**(1.0/d)*matern12rhalf(r2)
+        return theta**(1.0/d)*matern12(r)
     elif kind == 'smatern32':
-        return theta**(1.0/d)*matern32rhalf(r2)
+        return theta**(1.0/d)*matern32(r)
     elif kind == 'smatern52':
-        return theta**(1.0/d)*matern52rhalf(r2)
+        return theta**(1.0/d)*matern52(r)
 
 
-def sqe(r2):
-    return torch.exp(-0.5*r2)
+def sqe(r):
+    return torch.exp(-0.5*r**2)
 
 
-def matern12rhalf(r2):
-    r = torch.sqrt(r2)
+def matern12(r):
     return torch.exp(-r)
 
 
-def matern32rhalf(r2):
-    r = torch.sqrt(r2)
+def matern32(r):
     return (1+math.sqrt(3)*r)*torch.exp(-math.sqrt(3)*r)
 
 
-def matern52rhalf(r2):
-    r = torch.sqrt(r2)
-    return (1+math.sqrt(5)*r+5./3*r2)*torch.exp(-math.sqrt(5)*r)
+def matern52(r):
+    return (1+math.sqrt(5)*r+5./3*r**2)*torch.exp(-math.sqrt(5)*r)

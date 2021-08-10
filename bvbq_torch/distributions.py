@@ -33,8 +33,7 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
     def __init__(self,mean,var):
         super().__init__()
         self.ndim = mean.shape[0]
-        mean = torch.tensor(mean,dtype=torch.float32)
-        var = torch.tensor(var,dtype=torch.float32)
+        mean,var = utils.tensor_convert_(mean,var)
         self.mean = mean
         self.var = var
         assert(len(self.var) == self.ndim)
@@ -48,9 +47,11 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
     
     @staticmethod
     def logprob_(x,mean,var):
+#        x,mean,var = [utils.tensor_convert(x) for x in 
+        x,mean,var = utils.tensor_convert_(x,mean,var)
         ndim = mean.shape[0]
         std = torch.sqrt(var)
-        res = -0.5*torch.sum(((x-mean)/std)**2,axis=-1) \
+        res = -0.5*torch.sum(((x-mean)/std)**2,dim=-1) \
               -torch.sum(torch.log(std)) - \
                ndim/2*math.log(2*math.pi)
         return res
@@ -62,7 +63,8 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
         return res
         
     @staticmethod
-    def sample_(n,mean,var,subkey):
+    def sample_(n,mean,var):
+        mean,var = utils.tensor_convert_(mean,var)
         std = torch.sqrt(var)
         ndim = mean.shape[0]
         z = torch.randn((n,ndim))
@@ -70,10 +72,10 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
         return res
     
     def make_mixture(self):
-        means = torch.unsqueeze(self.mean,0)
-        variances = torch.unsqueeze(self.var,0)
+        mixmeans = torch.unsqueeze(self.mean,0)
+        mixvars = torch.unsqueeze(self.var,0)
         weights = torch.ones((1,))
-        return MixtureDiagonalNormalDistribution(means,variances,weights)
+        return MixtureDiagonalNormalDistribution(mixmeans,mixvars,weights)
     
     @property
     def params(self):
@@ -83,65 +85,66 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
         return 0.5*torch.sum(torch.log(2*math.pi*math.e*self.var))
     
 class MixtureDiagonalNormalDistribution(ProbabilityDistribution):
-    def __init__(self,means,variances,weights,seed=random.randint(1,1000)):
+    def __init__(self,mixmeans,mixvars,weights,seed=random.randint(1,1000)):
         super().__init__(seed)
         self.nmixtures = weights.shape[0]
-        self.ndim = means.shape[1]
-        means = torch.tensor(means,dtype=torch.float32)
-        variances = torch.tensor(variances,dtype=torch.float32)
-        weights = torch.tensor(weights,dtype=torch.float32)
-        self.means = means
-        self.variances = variances
+        self.ndim = mixmeans.shape[1]
+        means,mixvars,weights = utils.tensor_convert_(mixmeans,mixvars,weights)
+        self.mixmeans = mixmeans
+        self.mixvars = mixvars
         self.weights = weights
-        assert(self.variances.shape[1] == self.ndim)
-        assert(self.means.shape[0] == self.nmixtures)
-        assert(self.variances.shape[0] == self.nmixtures)
-        self.stds = torch.sqrt(variances)
+        assert(self.mixvars.shape[1] == self.ndim)
+        assert(self.mixmeans.shape[0] == self.nmixtures)
+        assert(self.mixvars.shape[0] == self.nmixtures)
+        self.stds = torch.sqrt(mixvars)
         self.ismixture = True
         
     def logprob(self,x):
         res = MixtureDiagonalNormalDistribution.logprob_(
-                x,self.means,self.variances,self.weights)
+                x,self.mixmeans,self.mixvars,self.weights)
         return res
 
     @staticmethod
-    def logprob_(x,means,variances,weights):
-        stds = torch.sqrt(variances)
-        ndim = means.shape[1]
+    def logprob_(x,mixmeans,mixvars,weights):
+        x,mixmeans,mixvars,weights = utils.tensor_convert_(x,mixmeans,mixvars,weights)
+        stds = torch.sqrt(mixvars)
+        ndim = mixmeans.shape[1]
         x = torch.unsqueeze(x,-2) #(n,1,d)
-        yi1 = -0.5*torch.sum(((x-means)/stds)**2,axis=-1) #(n,m)
-        yi2 = -torch.sum(torch.log(stds),axis=-1) #(m,)
+        yi1 = -0.5*torch.sum(((x-mixmeans)/stds)**2,dim=-1) #(n,m)
+        yi2 = -torch.sum(torch.log(stds),dim=-1) #(m,)
         yi3 = -ndim/2*math.log(2*math.pi) #(,)
         yi = yi1 + yi2 + yi3 #(n,m)
-        res = utils.logsumexp(yi*torch.log(weights),axis=-1)
+        res = torch.logsumexp(yi+torch.log(weights),dim=-1)
         return res
     
     def sample(self,n):
-        res = self.sample_(n,self.means,self.variances,self.weights)
+        res = self.sample_(n,self.mixmeans,self.mixvars,self.weights)
         return res
     
     @staticmethod
-    def sample_(n,means,variances,weights):
-        stds = torch.sqrt(variances)
-        nmixtures,ndim = means.shape
+    def sample_(n,mixmeans,mixvars,weights):
+        mixmeans,mixvars,weights = utils.tensor_convert_(mixmeans,mixvars,weights)
+        stds = torch.sqrt(mixvars)
+        nmixtures,ndim = mixmeans.shape
         catinds = torch.multinomial(weights,n,replacement=True)
-        z = torch.normal(shape=(n,ndim))
-        res = means[catinds,:] + stds[catinds,:]*z
+        z = torch.randn((n,ndim))
+        res = mixmeans[catinds,:] + stds[catinds,:]*z
         return res
     
     @property
     def params(self):
-        return self.means,self.variances,self.weights
+        return self.mixmeans,self.mixvars,self.weights
     
     def add_component(self,mean,var,weight,return_new=False):
+        mean,var,weights = utils.tensor_convert_(mean,var,weight)
         weights = torch.hstack([(1-weight)*self.weights,weight])
-        means = torch.vstack([self.means,mean])
-        variances = torch.vstack([self.variances,var])
+        mixmeans = torch.vstack([self.mixmeans,mean])
+        mixvars = torch.vstack([self.mixvars,var])
         if return_new:
-            return MixtureDiagonalNormalDistribution(means,variances,weights)
+            return MixtureDiagonalNormalDistribution(mixmeans,mixvars,weights)
         else:
-            self.means = means
-            self.variances = variances
+            self.mixmeans = mixmeans
+            self.mixvars = mixvars
             self.weights = weights
-            self.stds = torch.sqrt(variances)
+            self.stds = torch.sqrt(mixvars)
             self.nmixtures += 1

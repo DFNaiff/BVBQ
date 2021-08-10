@@ -17,3 +17,18 @@ def dict_minimize_torch_wrapper(f,*args):
                 [(key,grads[i]) for i,key in enumerate(params.keys())])
         return obj,d_obj
     return dwrapper
+
+
+def tensor_convert(x):
+    return torch.tensor(x,dtype=torch.float32) if not torch.is_tensor(x) else x
+
+
+def tensor_convert_(*args):
+    return [tensor_convert(x) for x in args]
+
+
+def logbound(logx,logdelta):
+    clipx = torch.clip(logx,logdelta,None)
+    boundx = clipx + torch.log(torch.exp(logx-clipx) + \
+                               torch.exp(logdelta-clipx))
+    return boundx

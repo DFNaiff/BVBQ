@@ -27,7 +27,7 @@ class SimpleGP(object):
         self.mean = mean #THIS IS THE MEAN AFTER ZEROMAX TRANSFORMATION.
                          #IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
                          #THIS WARNING
-        self.theta = torch.tensor(theta)
+        self.theta = utils.tensor_convert(theta)
         self.min_jitter = min_jitter
         if noise <= 1e-20:
             noise = 1e-20 #Just for not getting any infs, jitter takes care of the rest
@@ -39,17 +39,15 @@ class SimpleGP(object):
             self.ard = ard
             if self.ard:
                 lengthscale = torch.ones(self.ndim)*lengthscale
-        self.lengthscale = torch.tensor(lengthscale)
-        self.noise = torch.tensor(noise)
+        self.lengthscale = utils.tensor_convert(lengthscale)
+        self.noise = utils.tensor_convert(noise)
         self.fixed_params = set(fixed_params)
         self.zeromax = zeromax
         self.ymax = 0.0 #Neutral element in sum
         
-    def set_data(self,X,y,empirical_params=False,istensor=False):
+    def set_data(self,X,y,empirical_params=False):
         ndata = X.shape[0]
-        if not istensor:
-            X = torch.tensor(X,dtype=torch.float32)
-            y = torch.tensor(y,dtype=torch.float32)
+        X,y = utils.tensor_convert_(X,y)
         if len(y.shape) == 1:
             y = torch.unsqueeze(y,-1) #(d,1)
         if self.zeromax:
@@ -70,9 +68,8 @@ class SimpleGP(object):
         self.upper_chol_matrix = upper_chol_matrix
     
     def predict(self,xpred,return_cov=True,onlyvar=False,
-                istensor=False):
-        if not istensor:
-            xpred = torch.tensor(xpred,dtype=torch.float32)
+                return_tensor=True):
+        xpred = utils.tensor_convert(xpred)
         s = xpred.shape
         d = len(s)
         if d == 1:
@@ -99,12 +96,12 @@ class SimpleGP(object):
                 res = mean,var
         if not return_cov:
             mean = res
-            if not istensor:
+            if not return_tensor:
                 mean = np.array(mean)
             return mean
         else:
             mean,cov = res
-            if not istensor:
+            if not return_tensor:
                 mean,cov = np.array(mean),np.array(cov)
             return mean,cov
         
@@ -169,7 +166,7 @@ class SimpleGP(object):
         self.noise = self.derawfy(res.get('raw_noise',self._raw_noise))
         self.mean = res.get('mean',self.mean)
         self.lengthscale = self.derawfy(res.get('raw_lengthscale',self._raw_lengthscale))
-        self.set_data(self.X,self.y,istensor=True)
+        self.set_data(self.X,self.y)
         return res
     
     def gradient_step_params(self,fixed_params=[],
@@ -201,6 +198,7 @@ class SimpleGP(object):
         noise = self.derawfy(params.get('raw_noise',self._raw_noise))
         mean = params.get('mean',self.mean)
         lengthscale = self.derawfy(params.get('raw_lengthscale',self._raw_lengthscale))
+        print(theta,lengthscale)
         return -self.loglikelihood(theta,lengthscale,noise,mean) #Used for maximization in minimizer
     
     def loglikelihood(self,theta,lengthscale,noise,mean):
@@ -219,11 +217,9 @@ class SimpleGP(object):
     def current_loglikelihood(self):
         return self.loglikelihood(self.theta,self.lengthscale,self.noise,self.mean)
     
-    def update(self,Xnew,ynew,istensor=False):
+    def update(self,Xnew,ynew):
         nnew = Xnew.shape[0]
-        if not istensor:
-            Xnew = torch.tensor(Xnew,dtype=torch.float32)
-            ynew = torch.tensor(ynew,dtype=torch.float32)
+        Xnew,ynew = utils.tensor_convert_(Xnew,ynew)
         if len(ynew.shape) == 1:
             ynew = torch.unsqueeze(ynew,-1) #(d,1)
         if self.zeromax:
@@ -342,7 +338,7 @@ class SimpleGP(object):
 
     @mean.setter
     def mean(self,x):
-        self._mean = torch.tensor(x)
+        self._mean = utils.tensor_convert(x)
         
     @lengthscale.setter
     def lengthscale(self,x):
