@@ -1,3 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from . import gp,kernelfunctions,distributions,bayesquad,utils
+from . import gp,kernel_functions,distributions,bayesquad,utils,\
+              bvbq_functions,bvbq,acquisition_functions,metrics
+              
+from .interface import BVBQMixMVN

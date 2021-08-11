@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import abc
-import random
 import math
 
 import torch
@@ -85,8 +84,8 @@ class DiagonalNormalDistribution(ProbabilityDistribution):
         return 0.5*torch.sum(torch.log(2*math.pi*math.e*self.var))
     
 class MixtureDiagonalNormalDistribution(ProbabilityDistribution):
-    def __init__(self,mixmeans,mixvars,weights,seed=random.randint(1,1000)):
-        super().__init__(seed)
+    def __init__(self,mixmeans,mixvars,weights):
+        super().__init__(ismixture=True)
         self.nmixtures = weights.shape[0]
         self.ndim = mixmeans.shape[1]
         means,mixvars,weights = utils.tensor_convert_(mixmeans,mixvars,weights)

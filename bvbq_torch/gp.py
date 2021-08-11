@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import dict_minimize.torch_api
 
-from . import kernelfunctions
+from . import kernel_functions
 from . import utils
 
 
@@ -83,7 +83,6 @@ class SimpleGP(object):
             onlyvar = True
             n = int(np.prod((s[:-1])))
             xpred_r = xpred.reshape(n,s[-1])
-            print(xpred_r.shape)
             res_r = self._predict(xpred_r,return_cov=return_cov,onlyvar=onlyvar)
             if not return_cov:
                 mean_r = res_r
@@ -110,7 +109,6 @@ class SimpleGP(object):
         if len(xpred.shape) == 1:
             xpred = torch.unsqueeze(xpred,0) #(n,d)
         kxpred = self.make_kernel_matrix(self.X,xpred,self.theta,self.lengthscale) #(m,n)
-        #,lower=False,trans='T'
         y_,_ = torch.triangular_solve(self.y_-self.mean,
                                       self.upper_chol_matrix,
                                       upper=True,
@@ -142,7 +140,7 @@ class SimpleGP(object):
         
     def optimize_params(self,fixed_params=[],
                         method='L-BFGS-B',
-                        tol=1e-4,options={'disp':True}):
+                        tol=1e-1,options={'disp':True}):
         params = {'raw_theta':self._raw_theta,
                   'mean':self.mean,
                   'raw_lengthscale':self._raw_lengthscale,
@@ -172,34 +170,14 @@ class SimpleGP(object):
     def gradient_step_params(self,fixed_params=[],
                              alpha=1e-1,niter=1):
         raise NotImplementedError
-#        func_and_grad = jax.value_and_grad(self.loglikelihood_wrapper)
-#        params = {'raw_theta':self._raw_theta,
-#                  'mean':self.mean,
-#                  'raw_lengthscale':self._raw_lengthscale,
-#                  'raw_noise':self._raw_noise}
-#        for param in params:
-#            if param in fixed_params or param in self.fixed_params:
-#                params.pop(param,None)
-#                params.pop('raw_'+param,None)
-#                
-#        params = collections.OrderedDict(params)
-#        for i in range(niter):
-#            _,grads = func_and_grad(params)
-#            for key,value in grads.items():
-#                params[key] -= alpha*value
-#        self.theta = self.derawfy(params.get('raw_theta',self._raw_theta))
-#        self.noise = self.derawfy(params.get('raw_noise',self._raw_noise))
-#        self.mean = params.get('mean',self.mean)
-#        self.lengthscale = self.derawfy(params.get('raw_lengthscale',self._raw_lengthscale))
-#        self.set_data(self.X,self.y)
     
     def loglikelihood_wrapper(self,params):
         theta = self.derawfy(params.get('raw_theta',self._raw_theta))
         noise = self.derawfy(params.get('raw_noise',self._raw_noise))
         mean = params.get('mean',self.mean)
         lengthscale = self.derawfy(params.get('raw_lengthscale',self._raw_lengthscale))
-        print(theta,lengthscale)
-        return -self.loglikelihood(theta,lengthscale,noise,mean) #Used for maximization in minimizer
+        res = -self.loglikelihood(theta,lengthscale,noise,mean) #Used for maximization in minimizer
+        return res
     
     def loglikelihood(self,theta,lengthscale,noise,mean):
         kernel_matrix_ = self.make_kernel_matrix(self.X,self.X,theta,lengthscale)
@@ -220,15 +198,15 @@ class SimpleGP(object):
     def update(self,Xnew,ynew):
         nnew = Xnew.shape[0]
         Xnew,ynew = utils.tensor_convert_(Xnew,ynew)
-        if len(ynew.shape) == 1:
-            ynew = torch.unsqueeze(ynew,-1) #(d,1)
+        Xnew = torch.atleast_2d(Xnew)
+        ynew = torch.atleast_2d(ynew)
         if self.zeromax:
             self.ymax = max(torch.max(ynew),self.ymax)
         assert(ynew.shape[0] == nnew)
         assert(ynew.shape[1] == 1)
         assert(Xnew.shape[1] == self.ndim)
         Xup = torch.vstack([self.X,Xnew])
-        yup = torch.vstack([self.y_,ynew])
+        yup = torch.vstack([self.y,ynew])
         K11 = self.kernel_matrix
         K12 = self.make_kernel_matrix(self.X,Xnew,
                                       self.theta,
@@ -266,7 +244,7 @@ class SimpleGP(object):
     def make_kernel_matrix(self,X1,X2,theta,lengthscale,
                            diagonal=False):
         output = 'pairwise' if not diagonal else 'diagonal'
-        K = kernelfunctions.kernel_function(X1,X2,
+        K = kernel_functions.kernel_function(X1,X2,
                                             theta=theta,
                                             l=lengthscale,
                                             kind=self.kind,

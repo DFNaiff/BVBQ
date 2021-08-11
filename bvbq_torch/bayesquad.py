@@ -4,7 +4,7 @@ import math
 import numpy as np
 import torch
 
-from . import kernelfunctions
+from . import kernel_functions
 from . import utils
 
 LOCS_25,WEIGHTS_25 = [torch.tensor(x,dtype=torch.float32) for 
@@ -37,7 +37,7 @@ def separable_dmvn_bq(gp,mean,var,nhermite=50,return_var=True):
     weights__ = weights[None,:,None] #(1,k,1)
     
     xdata = gp.X
-    kernel_tensor = kernelfunctions.kernel_function_separated(locs_,
+    kernel_tensor = kernel_functions.kernel_function_separated(locs_,
                                                               xdata,
                                                               gp.theta,
                                                               gp.lengthscale,
@@ -46,7 +46,7 @@ def separable_dmvn_bq(gp,mean,var,nhermite=50,return_var=True):
     kernel_matrix = torch.sum(kernel_tensor,dim=0)*1/math.sqrt(math.pi) #(n,d)
     z = torch.prod(kernel_matrix,dim=-1,keepdim=True)
     if return_var:
-        kernel_tensor_2 = kernelfunctions.kernel_function_separated(locs_,
+        kernel_tensor_2 = kernel_functions.kernel_function_separated(locs_,
                                                                     locs_,
                                                                     gp.theta,
                                                                     gp.lengthscale,
@@ -68,7 +68,7 @@ def separable_mixdmvn_bq(gp,mixmeans,mixvars,weights,nhermite=50,return_var=True
     hlocs_ = hlocs[:,None,None]*torch.sqrt(mixvars)*math.sqrt(2) + mixmeans #(k,m,d)
     hweights_ = hweights[:,None,None,None] #(k,1,1,1)
     xdata = gp.X
-    kernel_tensor = kernelfunctions.kernel_function_separated(hlocs_,
+    kernel_tensor = kernel_functions.kernel_function_separated(hlocs_,
                                                               xdata,
                                                               theta=gp.theta,
                                                               l=gp.lengthscale,
@@ -83,7 +83,7 @@ def separable_mixdmvn_bq(gp,mixmeans,mixvars,weights,nhermite=50,return_var=True
     if return_var:
         hweights__ = hweights[:,None,None] #(k,1,1)
         hweights___ = hweights[:,None,None,None,None] #(k,1,1,1,1)
-        kernel_tensor_2 = kernelfunctions.kernel_function_separated(hlocs_,
+        kernel_tensor_2 = kernel_functions.kernel_function_separated(hlocs_,
                                                                     hlocs_,
                                                                     theta=gp.theta,
                                                                     l=gp.lengthscale,
