@@ -79,3 +79,14 @@ def crop_fixed_params_gp(params,fixed_params):
             params.pop(param,None)
             params.pop('raw_'+param,None)
     return params
+
+
+def softplus(x):
+    return torch.nn.functional.softplus(x)
+
+
+def invsoftplus(x):
+    bound = 20.0
+    xa = torch.clamp(x,None,bound)
+    res = torch.log(torch.exp(xa)-1.0)*(xa < bound) + xa*(xa >= bound)
+    return res
