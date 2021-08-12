@@ -20,7 +20,6 @@ class NamedDistribution(object):
         uncorrected_res = self.basedistrib.logprob(joint_and_warped_x)
         corrections = [self.logdwarpf(key)(value) for key,value in params_.items()]
         correction = torch.sum(torch.cat(corrections,dim=-1),dim=-1)
-        print([self.logdwarpf(key)(value) for key,value in params_.items()])
         res = uncorrected_res + correction
         return res
     
