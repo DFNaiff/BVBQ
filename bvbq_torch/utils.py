@@ -68,3 +68,14 @@ def cut_components_mixmvn(mixmeans,mixvars,mixweights,cutoff_limit=1e-6):
         mixweights_cut = mixweights[remain_inds]
         mixweights_cut = mixweights_cut/torch.sum(mixweights_cut) #Normalization
         return mixmeans_cut,mixvars_cut,mixweights_cut
+    
+
+def crop_fixed_params_gp(params,fixed_params):
+    params_list = set(params.keys())
+    for param in params_list:
+        if param[:4] == 'raw_':
+            param = param[4:]
+        if param in fixed_params:
+            params.pop(param,None)
+            params.pop('raw_'+param,None)
+    return params

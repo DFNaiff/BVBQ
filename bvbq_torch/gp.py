@@ -138,20 +138,15 @@ class SimpleGP(object):
     def loo_mean_prediction(self,xpred): #Only return mean
         raise NotImplementedError
         
-    def optimize_params_quasi_newton(self,fixed_params=[],
-                                     method='L-BFGS-B',
-                                     tol=1e-1,options={'disp':True}):
+    def optimize_params_qn(self,fixed_params=[],
+                           method='L-BFGS-B',
+                           tol=1e-1,options={'disp':True}):
         params = {'raw_theta':self._raw_theta,
                   'mean':self.mean,
                   'raw_lengthscale':self._raw_lengthscale,
                   'raw_noise':self._raw_noise}
-        params_list = set(params.keys())
-        for param in params_list:
-            if param[:4] == 'raw_':
-                param = param[4:]
-            if param in fixed_params or param in self.fixed_params:
-                params.pop(param,None)
-                params.pop('raw_'+param,None)
+        params = utils.crop_fixed_params_gp(params,
+                                            self.fixed_params.union(fixed_params))
         params = collections.OrderedDict(params)
         dwrapper = utils.dict_minimize_torch_wrapper(self.loglikelihood_wrapper)
         res = dict_minimize.torch_api.minimize(dwrapper,
@@ -167,6 +162,37 @@ class SimpleGP(object):
         self.set_data(self.X,self.y)
         return res
     
+    def optimize_params_sgd(self,fixed_params=[],
+                            maxiter=100,
+                            optim=torch.optim.Adam,
+                            lr=1e-1,
+                            verbose=False):
+        params = {'raw_theta':self._raw_theta,
+                  'mean':self.mean,
+                  'raw_lengthscale':self._raw_lengthscale,
+                  'raw_noise':self._raw_noise}
+        params = utils.crop_fixed_params_gp(params,
+                                            self.fixed_params.union(fixed_params))
+        for _,tensor in params.items():
+            tensor.requires_grad=True
+        optimizer = optim(list(params.values()),lr=lr)
+        for i in range(maxiter):
+            optimizer.zero_grad()
+            loss = self.loglikelihood_wrapper(params)
+            loss.backward()
+            if verbose:
+                print(i,loss.detach().numpy().item())
+                print([(p,v.detach().numpy()) for p,v in params.items()])
+                print('-'*5)
+            optimizer.step()
+        res = dict([(key,value.detach().clone()) for key,value in params.items()])
+        self.theta = self.derawfy(res.get('raw_theta',self._raw_theta))
+        self.noise = self.derawfy(res.get('raw_noise',self._raw_noise))
+        self.mean = res.get('mean',self.mean)
+        self.lengthscale = self.derawfy(res.get('raw_lengthscale',self._raw_lengthscale))
+        self.set_data(self.X,self.y)
+        return res
+
     def gradient_step_params(self,fixed_params=[],
                              alpha=1e-1,niter=1):
         raise NotImplementedError
@@ -257,11 +283,7 @@ class SimpleGP(object):
         
     def make_cholesky(self,K):
         U = torch.linalg.cholesky(K).transpose(-2,-1) #Lower to upper
-        return U
-    
-#    def make_inverse(self,K):
-#        return jax.scipy.linalg.inv(K)
-    
+        return U    
     
     def set_params_empirical_(self,X,y):
         mean = torch.mean(y) if 'mean' not in self.fixed_params else self.mean
@@ -269,13 +291,6 @@ class SimpleGP(object):
         horizontal_scale = (torch.max(X,dim=0).values - \
                             torch.min(X,dim=0).values)
         lengthscale = horizontal_scale/3.0
-#        theta = torch.std(y)
-#        y_ = 2*(y - torch.min(y))/(torch.max(y) - torch.min(y)) - 1
-#        ay_ = torch.arccos(y_)
-#        omega = torch.linalg.lstsq(
-#                    torch.hstack([torch.ones((X.shape[0],1)),X]),
-#                    ay_,rcond=None)[0][1:]
-#        l = omega/(2*math.pi)
         if 'mean' not in self.fixed_params:
             self.mean = mean
         if 'theta' not in self.fixed_params:

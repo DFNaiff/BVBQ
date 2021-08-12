@@ -71,14 +71,13 @@ class BVBQMixMVN(object):
                                                   name='PP')
         y = self.evaluate_single(x)
 
-        #FIXME : Substitute below lines for actual efficient update
-        #Fix this function
+        #FIXME: Fix this function
 #        self.logprobgp.update(x,y)
-        
+        #FIXME : Substitute below lines for actual (fixed) efficient update above
         X = torch.vstack([self.eval_points,x])
         y = torch.vstack([self.eval_values,y])
         self.logprobgp.set_data(X,y)
-                
+        
     def evaluate_single(self,x):
         return torch.squeeze(self.eval_function(x))
     
@@ -102,6 +101,16 @@ class BVBQMixMVN(object):
                                                self.mixvars,
                                                self.mixweights,
                                                nsamples=1000)
+    
+    def optimize_gp_params(self,*args,**kwargs):
+        baseopt = kwargs.get('baseopt','QN')
+        kwargs.pop('baseopt',None)
+        assert baseopt in ['QN','SGD']
+        if baseopt == 'QN':
+            return self.optimize_gp_params_qn(*args,**kwargs)
+        elif baseopt == 'SGD':
+            return self.optimize_gp_params_sgd(*args,**kwargs)
+    
     @property
     def distribution(self):
         return distributions.MixtureDiagonalNormalDistribution(
@@ -109,8 +118,12 @@ class BVBQMixMVN(object):
         
     #XXX: This actually performs computation
     @property
-    def optimize_gp_params(self):
-        return self.logprobgp.optimize_params
+    def optimize_gp_params_qn(self):
+        return self.logprobgp.optimize_params_qn
+    
+    @property
+    def optimize_gp_params_sgd(self):
+        return self.logprobgp.optimize_params_sgd
     
     @property
     def eval_points(self):
