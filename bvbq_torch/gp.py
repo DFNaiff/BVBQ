@@ -50,20 +50,20 @@ class SimpleGP(object):
         X,y = utils.tensor_convert_(X,y)
         if len(y.shape) == 1:
             y = torch.unsqueeze(y,-1) #(d,1)
-        if self.zeromax:
-            self.ymax = torch.max(y)
         assert(y.shape[0] == ndata)
         assert(y.shape[1] == 1)
         assert(X.shape[1] == self.ndim)
+        if self.zeromax:
+            self.ymax = torch.max(y)
+        y_ = y - self.ymax #Output after output rescaling
         if empirical_params:
-            raise NotImplementedError
-            self.set_params_empirical(X,y)
+            self.set_params_empirical_(X,y)
         kernel_matrix_ = self.make_kernel_matrix(X,X,self.theta,self.lengthscale)
         kernel_matrix = self.noisify_kernel_matrix(kernel_matrix_,self.noise)
         upper_chol_matrix = self.make_cholesky(kernel_matrix)
         self.ndata = ndata
         self.X = X
-        self.y_ = y - self.ymax
+        self.y_ = y_
         self.kernel_matrix = kernel_matrix #Noised already
         self.upper_chol_matrix = upper_chol_matrix
     
@@ -138,9 +138,9 @@ class SimpleGP(object):
     def loo_mean_prediction(self,xpred): #Only return mean
         raise NotImplementedError
         
-    def optimize_params(self,fixed_params=[],
-                        method='L-BFGS-B',
-                        tol=1e-1,options={'disp':True}):
+    def optimize_params_quasi_newton(self,fixed_params=[],
+                                     method='L-BFGS-B',
+                                     tol=1e-1,options={'disp':True}):
         params = {'raw_theta':self._raw_theta,
                   'mean':self.mean,
                   'raw_lengthscale':self._raw_lengthscale,
@@ -189,7 +189,7 @@ class SimpleGP(object):
                                     transpose=True) #(m,1)
         term1 = -0.5*torch.sum(y_**2)
         term2 = -torch.sum(torch.log(torch.diagonal(upper_chol_matrix)))
-        term3 = -0.5*self.ndata*math.log(2*np.pi)
+        term3 = -0.5*self.ndata*math.log(2*math.pi)
         return term1 + term2 + term3
         
     def current_loglikelihood(self):
@@ -262,19 +262,26 @@ class SimpleGP(object):
 #    def make_inverse(self,K):
 #        return jax.scipy.linalg.inv(K)
     
-    def set_params_empirical(self,X,y):
-        mean = torch.mean(y)
-        theta = torch.std(y)
-        y_ = 2*(y - torch.min(y))/(torch.max(y) - torch.min(y)) - 1
-        ay_ = torch.arccos(y_)
-        omega = torch.linalg.lstsq(np.hstack([np.ones((X.shape[0],1)),X]),ay_,rcond=None)[0][1:]
-        l = omega/(2*math.pi)
+    
+    def set_params_empirical_(self,X,y):
+        mean = torch.mean(y) if 'mean' not in self.fixed_params else self.mean
+        theta = torch.sqrt(torch.mean((y-mean)**2)) #Biased, but whatever
+        horizontal_scale = (torch.max(X,dim=0).values - \
+                            torch.min(X,dim=0).values)
+        lengthscale = horizontal_scale/3.0
+#        theta = torch.std(y)
+#        y_ = 2*(y - torch.min(y))/(torch.max(y) - torch.min(y)) - 1
+#        ay_ = torch.arccos(y_)
+#        omega = torch.linalg.lstsq(
+#                    torch.hstack([torch.ones((X.shape[0],1)),X]),
+#                    ay_,rcond=None)[0][1:]
+#        l = omega/(2*math.pi)
         if 'mean' not in self.fixed_params:
             self.mean = mean
         if 'theta' not in self.fixed_params:
             self.theta = theta
         if 'lengthscale' not in self.fixed_params:
-            self.lengthscale = l
+            self.lengthscale = lengthscale
         
     def rawfy(self,x):
         return torch.log(torch.exp(x)-1) #invsoftmax

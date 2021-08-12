@@ -7,6 +7,7 @@ import torch
 from . import kernel_functions
 from . import utils
 
+
 LOCS_25,WEIGHTS_25 = [torch.tensor(x,dtype=torch.float32) for 
                       x in np.polynomial.hermite.hermgauss(25)]
 LOCS_50,WEIGHTS_50 = [torch.tensor(x,dtype=torch.float32) for 

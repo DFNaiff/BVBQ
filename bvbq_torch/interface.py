@@ -13,21 +13,20 @@ class BVBQMixMVN(object):
         self.set_eval_function(eval_function)
         self.ndim = ndim
         
-    def initialize_data(self,init_policy='data',**kwargs):
+    def initialize_data(self,init_policy='data',kind='smatern52',
+                        noise=0.0,mean=-30.0,empirical_params=False,
+                        **kwargs):
         #TODO : Assertions, customizations and new policies
         assert init_policy in ['data']
         if init_policy == 'data':
             xdata = kwargs.get('xdata')
             ydata = kwargs.get('ydata')
             
-        kind = kwargs.get('kind','smatern52')
-        noise = kwargs.get('noise',0.0)
-        mean = kwargs.get('mean',-30.0)
         logprobgp = gp.SimpleGP(1,kind=kind,noise=noise,zeromax=True)
         logprobgp.mean = mean
         logprobgp.fix_mean()
         logprobgp.fix_noise()
-        logprobgp.set_data(xdata,ydata,empirical_params=False)
+        logprobgp.set_data(xdata,ydata,empirical_params=empirical_params)
         self.logprobgp = logprobgp
         
     def initialize_components(self,init_policy='manual',**kwargs):
