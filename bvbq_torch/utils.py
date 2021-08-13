@@ -90,3 +90,7 @@ def invsoftplus(x):
     xa = torch.clamp(x,None,bound)
     res = torch.log(torch.exp(xa)-1.0)*(xa < bound) + xa*(xa >= bound)
     return res
+
+
+def get_subdict(d,param):
+    return dict([(key,d[key][param]) for key in d.keys()])

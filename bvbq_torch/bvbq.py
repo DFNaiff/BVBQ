@@ -18,7 +18,7 @@ def propose_component_mvn_mixmvn_relbo(logprobgp,
                                        lr=1e-1):
     ndim = mixmeans.shape[1]
     mean0 = distributions.MixtureDiagonalNormalDistribution.sample_(
-            1,mixmeans,mixvars,mixweights)[0,:]
+            1,mixmeans,mixvars,mixweights)
     var0 = torch.distributions.HalfNormal(1.0).sample((ndim,))
     rawvar0 = torch.log(torch.exp(var0)-1)
     optimizer = optim([mean0,rawvar0],lr=lr)
