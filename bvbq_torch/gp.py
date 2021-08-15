@@ -93,13 +93,13 @@ class SimpleGP(object):
         # IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
         # THIS WARNING
         self.theta = utils.tensor_convert(theta)
-        self.lengthscale = self._set_lengthscalengthscale(lengthscale, ard)
+        self.lengthscale = self._set_lengthscale(lengthscale, ard)
         self.noise = utils.tensor_convert(noise)
 
     def set_data(self, X, y, empirical_params=False):
         """
         Set data for GP
-        
+
         Parameters
         ----------
         X : [float]
@@ -131,28 +131,40 @@ class SimpleGP(object):
         self.kernel_matrix = kernel_matrix  # Noised already
         self.upper_chol_matrix = upper_chol_matrix
 
-    def predict(self, xpred, return_cov=True, onlyvar=False,
-                return_tensor=True):
-        #TODO : Document later because I want to change arguments
+    def predict(self, xpred, to_return='mean'):
+        """
+        Gaussian process prediction
+
+        Parameters
+        ----------
+        xpred : [float]
+            Prediction points
+        to_return : str
+            If 'mean', return only mean of prediction
+            If 'var', return mean and variance of prediction
+            If 'cov' and xpred has less than 3 dimensions,
+            return mean and covariance matrix of prediction
+        """
         xpred = utils.tensor_convert(xpred)
         s = xpred.shape
         d = len(s)
         if d == 1:
             xpred = torch.unsqueeze(xpred, 0)
             # No difference for one item
-            res = self._predict(xpred, return_cov=return_cov, onlyvar=onlyvar)
+            res = self._predict(xpred, to_return=to_return)
         elif d == 2:
-            res = self._predict(xpred, return_cov=return_cov, onlyvar=onlyvar)
+            res = self._predict(xpred, to_return=to_return)
         else:  # some reshaping trick in order
             # [...,d] -> [n,d]
             print(
                 "If tensor has more than 2 dimensions, only diagonal of covariance is returned")
-            onlyvar = True
+            if to_return == 'cov':
+                to_return = 'var'
             n = int(np.prod((s[:-1])))
             xpred_r = xpred.reshape(n, s[-1])
             res_r = self._predict(
-                xpred_r, return_cov=return_cov, onlyvar=onlyvar)
-            if not return_cov:
+                xpred_r, to_return=to_return)
+            if to_return == 'mean':
                 mean_r = res_r
                 mean = mean_r.reshape(*(s[:-1]))
                 res = mean
@@ -161,18 +173,15 @@ class SimpleGP(object):
                 mean = mean_r.reshape(*(s[:-1]))
                 var = var_r.reshape(*(s[:-1]))
                 res = mean, var
-        if not return_cov:
+        if to_return == 'mean':
             mean = res
-            if not return_tensor:
-                mean = np.array(mean)
             return mean
         else:
             mean, cov = res
-            if not return_tensor:
-                mean, cov = np.array(mean), np.array(cov)
             return mean, cov
 
     def loo_mean_prediction(self, xpred):  # Only return mean
+        """Prediction using LOO. Not implemented"""
         raise NotImplementedError
 
     def optimize_params_qn(self, fixed_params=tuple(),
@@ -180,7 +189,7 @@ class SimpleGP(object):
                            tol=1e-1, options=None):
         """
         Optimize the GP parameters via dict-minimize (Quasi-Newton method)
-           
+
         Parameters
         ----------
         fixed_params : [str]
@@ -191,7 +200,7 @@ class SimpleGP(object):
             Optimization tolerance for dict-minimize
         options : dict or None
             Options for dict-minimize
-            
+
         Returns
         -------
         dict({str:torch.Tensor})
@@ -229,7 +238,7 @@ class SimpleGP(object):
                             verbose=False):
         """
         Optimize the GP parameters via torch.optim (SGD method)
-           
+
         Parameters
         ----------
         fixed_params : [str]
@@ -247,7 +256,7 @@ class SimpleGP(object):
         dict({str:torch.Tensor})
             A copy of optimal values found
         """
-        
+
         params = {'raw_theta': self._raw_theta,
                   'mean': self.mean,
                   'raw_lengthscale': self._raw_lengthscale,
@@ -277,12 +286,33 @@ class SimpleGP(object):
 
     def gradient_step_params(self, fixed_params=tuple(),
                              alpha=1e-1, niter=1):
+        """Not implemented"""
         raise NotImplementedError
 
     def current_loglikelihood(self):
+        """
+            Get loglikelihood of GP
+
+            Returns
+            -------
+            torch.Tensor
+                Current loglikelihood
+        """
         return self._loglikelihood(self.theta, self.lengthscale, self.noise, self.mean)
 
     def update(self, Xnew, ynew):
+        """
+            Update data
+
+            Parameters
+            ----------
+            Xnew : [float]
+                Data matrix of update points
+            ynew : [float]
+                Evaluation vector of update points
+        """
+        # FIXME : Broken somehow
+        raise NotImplementedError
         nnew = Xnew.shape[0]
         Xnew, ynew = utils.tensor_convert_(Xnew, ynew)
         Xnew = torch.atleast_2d(Xnew)
@@ -321,15 +351,46 @@ class SimpleGP(object):
         self.upper_chol_matrix = U
 
     def downdate(self, drop_inds):
+        """Downdate data. Not implemented"""
         raise NotImplementedError
 
     def kernel_function(self, X1, X2, diagonal=False):
+        """
+        Calculate kernel function of GP
+
+        Parameters
+        ----------
+        X1 : [float]
+            First kernel argument
+        X2 : [float]
+            Second kernel argument
+        diagonal : bool
+            If False, return pairwise kernel evaluations tensor
+            If True, return diagonal of pairwise kernel evaluations tensor
+
+        Returns
+        -------
+        torch.Tensor
+            Kernel values
+
+        """
         return self._make_kernel_matrix(X1, X2,
                                         self.theta,
                                         self.lengthscale,
                                         diagonal=diagonal)
 
     def set_params_empirical_(self, X, y):
+        """
+        Set initialize params empirically from data (quick and dirty)
+
+        Parameters
+        ----------
+        X : [float]
+            Data matrix for GP
+        y : [float]
+            Evaluation vector for GP
+
+        """
         mean = torch.mean(y) if 'mean' not in self.fixed_params else self.mean
         theta = torch.sqrt(torch.mean((y-mean)**2))  # Biased, but whatever
         horizontal_scale = (torch.max(X, dim=0).values -
@@ -343,15 +404,19 @@ class SimpleGP(object):
             self.lengthscale = lengthscale
 
     def fix_noise(self):
+        """Fix noise for optimization"""
         self.fixed_params.add('noise')
 
     def fix_mean(self):
+        """Fix mean for optimization"""
         self.fixed_params.add('mean')
 
     def unfix_noise(self):
+        """Unfix noise for optimization"""
         self.fixed_params.discard('noise')
 
     def unfix_mean(self):
+        """Unfix mean for optimization"""
         self.fixed_params.discard('mean')
 
     @property
@@ -396,7 +461,7 @@ class SimpleGP(object):
         """Evaluation tensor"""
         return self.y_ + self.ymax
 
-    def _predict(self, xpred, return_cov=True, onlyvar=False):
+    def _predict(self, xpred, to_return='mean'):
         # a^T K^-1 b = a^T (U^T U)^-1 b= (U^-T a)^T (U^-T b)
         if len(xpred.shape) == 1:
             xpred = torch.unsqueeze(xpred, 0)  # (n,d)
@@ -412,22 +477,21 @@ class SimpleGP(object):
                                             transpose=True)  # (m,n)
         pred_mean = (kxpred_.transpose(-2, -1)@y_) + self.mean + self.ymax
         pred_mean = torch.squeeze(pred_mean, -1)
-        if not return_cov:
+        if to_return == 'mean':
             return pred_mean
-        else:
-            if not onlyvar:
-                Kxpxp = self._make_kernel_matrix(
-                    xpred, xpred, self.theta, self.lengthscale)
-                Kxpxp = self._noisify_kernel_matrix(Kxpxp, self.noise)
-                pred_cov = Kxpxp - \
-                    kxpred_.transpose(-2, -1)@kxpred_
-                return pred_mean, pred_cov
-            else:
-                Kxpxp = self._make_kernel_matrix(xpred, xpred, self.theta, self.lengthscale,
-                                                 diagonal=True)
-                Kxpxp += self.noise**2 + self.min_jitter
-                pred_var = Kxpxp - (kxpred_.transpose(-2, -1)**2).sum(dim=-1)
-                return pred_mean, pred_var
+        elif to_return == 'cov':
+            Kxpxp = self._make_kernel_matrix(
+                xpred, xpred, self.theta, self.lengthscale)
+            Kxpxp = self._noisify_kernel_matrix(Kxpxp, self.noise)
+            pred_cov = Kxpxp - \
+                kxpred_.transpose(-2, -1)@kxpred_
+            return pred_mean, pred_cov
+        elif to_return == 'var':
+            Kxpxp = self._make_kernel_matrix(xpred, xpred, self.theta, self.lengthscale,
+                                             diagonal=True)
+            Kxpxp += self.noise**2 + self.min_jitter
+            pred_var = Kxpxp - (kxpred_.transpose(-2, -1)**2).sum(dim=-1)
+            return pred_mean, pred_var
 
     def _rawfy(self, x):
         return utils.invsoftplus(x)  # invsoftmax

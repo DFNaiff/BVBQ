@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=E1101
-
+"""
+    BVBQ main interface
+"""
 import torch
 
 from . import utils
@@ -12,20 +14,20 @@ from . import metrics
 from . import named_distributions
 
 
-class BVBQNamedMixMVN(object):
+class BVBQMixMVN(object):
     def __init__(self, params_name, params_dim, params_bound, params_scale=None):
-        self._named_distribution = named_distributions.NamedDistribution(
-            params_name,
-            params_dim,
-            params_bound,
-            self.base_distribution,
-            params_scale)
         self.logprobgp = None
         self.mixmeans = None
         self.mixvars = None
         self.mixweights = None
         self.eval_values = None
         self.eval_params = None
+        self._named_distribution = named_distributions.NamedDistribution(
+            params_name,
+            params_dim,
+            params_bound,
+            self.base_distribution,
+            params_scale)
         self.nmixtures = 0
 
     def initialize_data(self, eval_params, eval_values, kind='smatern52',
@@ -152,7 +154,7 @@ class BVBQNamedMixMVN(object):
     def surrogate_prediction(self, params):
         params_ = self._named_distribution.organize_params(params)
         xpred = self._named_distribution.join_and_warp_parameters(params_)
-        ypred = self.logprobgp.predict(xpred, return_cov=False)
+        ypred = self.logprobgp.predict(xpred, to_return='mean')
         corrections = [self._named_distribution.logdwarpf(key)(value)
                        for key, value in params_.items()]
         correction = torch.sum(torch.cat(corrections, dim=-1), dim=-1)

@@ -14,7 +14,7 @@ import torch
 
 def prospective_prediction(x, gp, distrib):
     """Prospective prediction acquisition function"""
-    mean, var = gp.predict(x, return_cov=True, onlyvar=True)
+    mean, var = gp.predict(x, to_return='var')
     logprob = distrib.logprob(x)
     res = torch.exp(mean+2*logprob)*var
     return res
@@ -22,14 +22,14 @@ def prospective_prediction(x, gp, distrib):
 
 def moment_matched_log_transform(x, gp, distrib):
     """Moment matched log transform acquisition function"""
-    mean, var = gp.predict(x, return_cov=True, onlyvar=True)
+    mean, var = gp.predict(x, to_return='var')
     res = torch.exp(2*mean + var)*(torch.exp(var)-1)
     return res
 
 
 def prospective_mmlt(x, gp, distrib):
     """Prospective moment matched log transform acquisition function"""
-    mean, var = gp.predict(x, return_cov=True, onlyvar=True)
+    mean, var = gp.predict(x, to_return='var')
     logprob = distrib.logprob(x)
     res = torch.exp(2*mean+2*logprob+var)*(torch.exp(var)-1)
     return res

@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=E1101
-
+"""
+    Deprecated. Use named_interface.BVBQMixMVN.
+    Won't be documented due to this
+"""
 import torch
 
 from . import utils
