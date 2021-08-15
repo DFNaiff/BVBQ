@@ -13,25 +13,74 @@ from . import utils
 
 
 class SimpleGP(object):
+    """
+    Gaussian Process class for surrogate modeling
+
+    DEEPER DESCRIPTION
+
+    Attributes
+    ----------
+    dim : int
+        Dimension of the GP
+    kind : str
+        Kernel for GP
+    min_jitter : float
+        Minimum value for jittering kernel matrix
+    fixed_params : set
+        Name of fixed params when optimizing
+    zeromax : bool
+        Whether zeromax normalization is used
+    ymax : float
+        If zeromax is True, maximum of output data. Otherwise 0
+    ndata : int
+        Number of data points in GP
+    X : torch.Tensor
+        Data matrix
+    y_ : torch.Tensor
+        Evaluation matrix after zeromax normalization
+    kernel_matrix : torch.Tensor
+        Kernel matrix of data
+    upper_chol_matrix : torch.Tensor
+        Upper Cholesky factor of data's kernel matrix
+    """
+
     def __init__(self, dim,
+                 kind='sqe',
                  theta=1.0,
                  lengthscale=1.0,
                  noise=1e-2,
                  mean=0.0,
-                 ard=False,
+                 ard=True,
                  min_jitter=1e-4,
-                 kind='sqe',
                  fixed_params=tuple(),
-                 zeromax=None):
+                 zeromax=False):
+        """
+        Parameters
+        ----------
+        dim : int
+            Dimension of the GP
+        lengthscale : float or [float]
+            Kernel lengthscale
+        theta : float
+            Kernel outputscale
+        noise : float
+            Noise of GP
+        mean : float
+            Mean of GP
+        kind : str
+            Kernel for GP
+        ard : bool
+            Whether kernel has a lengthscale for every dimension
+        min_jitter : float
+            Minimum value for jittering kernel matrix
+        fixed_params : set
+            Name of fixed params when optimizing
+        zeromax : bool
+            Whether zeromax normalization is used
+        """
         self.dim = dim
         self.kind = kind
-        self.mean = mean  # THIS IS THE MEAN AFTER ZEROMAX TRANSFORMATION.
-        # IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
-        # THIS WARNING
-        self.theta = utils.tensor_convert(theta)
         self.min_jitter = min_jitter
-        self.lengthscale = self._set_lengthscalengthscale(lengthscale, ard)
-        self.noise = utils.tensor_convert(noise)
         self.fixed_params = set(fixed_params)
         self.zeromax = zeromax
         self.ymax = 0.0  # Neutral element in sum
@@ -40,8 +89,26 @@ class SimpleGP(object):
         self.y_ = None
         self.kernel_matrix = None
         self.upper_chol_matrix = None
+        self.mean = mean  # THIS IS THE MEAN AFTER ZEROMAX TRANSFORMATION.
+        # IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
+        # THIS WARNING
+        self.theta = utils.tensor_convert(theta)
+        self.lengthscale = self._set_lengthscalengthscale(lengthscale, ard)
+        self.noise = utils.tensor_convert(noise)
 
     def set_data(self, X, y, empirical_params=False):
+        """
+        Set data for GP
+        
+        Parameters
+        ----------
+        X : [float]
+            Data matrix for GP
+        y : [float]
+            Evaluation vector for GP
+        empirical_params : bool
+            Whether kernel parameters are initialized empirically
+        """
         ndata = X.shape[0]
         X, y = utils.tensor_convert_(X, y)
         if len(y.shape) == 1:
@@ -66,6 +133,7 @@ class SimpleGP(object):
 
     def predict(self, xpred, return_cov=True, onlyvar=False,
                 return_tensor=True):
+        #TODO : Document later because I want to change arguments
         xpred = utils.tensor_convert(xpred)
         s = xpred.shape
         d = len(s)
@@ -110,6 +178,26 @@ class SimpleGP(object):
     def optimize_params_qn(self, fixed_params=tuple(),
                            method='L-BFGS-B',
                            tol=1e-1, options=None):
+        """
+        Optimize the GP parameters via dict-minimize (Quasi-Newton method)
+           
+        Parameters
+        ----------
+        fixed_params : [str]
+            Parameters to be fixed in this optimization
+        method : str
+            Optimization method for dict-minimize
+        tol : float
+            Optimization tolerance for dict-minimize
+        options : dict or None
+            Options for dict-minimize
+            
+        Returns
+        -------
+        dict({str:torch.Tensor})
+            A copy of optimal values found
+        """
+
         params = {'raw_theta': self._raw_theta,
                   'mean': self.mean,
                   'raw_lengthscale': self._raw_lengthscale,
@@ -125,7 +213,7 @@ class SimpleGP(object):
                                                method=method,
                                                tol=tol,
                                                options=options)
-        res = dict([(key, value.detach()) for key, value in res.items()])
+        res = {key: value.detach().clone() for key, value in res.items()}
         self.theta = self._derawfy(res.get('raw_theta', self._raw_theta))
         self.noise = self._derawfy(res.get('raw_noise', self._raw_noise))
         self.mean = res.get('mean', self.mean)
@@ -139,6 +227,27 @@ class SimpleGP(object):
                             optim=torch.optim.Adam,
                             lr=1e-1,
                             verbose=False):
+        """
+        Optimize the GP parameters via torch.optim (SGD method)
+           
+        Parameters
+        ----------
+        fixed_params : [str]
+            Parameters to be fixed in this optimization
+        maxiter : int
+            Number of steps for SGD
+        optim : torch.optim.Optimizer
+            Optimizer to be used
+        lr : float
+            Learning rate of optimizer
+        verbose : bool
+            Whether to show maxiter steps
+        Returns
+        -------
+        dict({str:torch.Tensor})
+            A copy of optimal values found
+        """
+        
         params = {'raw_theta': self._raw_theta,
                   'mean': self.mean,
                   'raw_lengthscale': self._raw_lengthscale,
@@ -157,8 +266,7 @@ class SimpleGP(object):
                 print([(p, v.detach().numpy()) for p, v in params.items()])
                 print('-'*5)
             optimizer.step()
-        res = dict([(key, value.detach().clone())
-                    for key, value in params.items()])
+        res = {key: value.detach().clone() for key, value in params.items()}
         self.theta = self._derawfy(res.get('raw_theta', self._raw_theta))
         self.noise = self._derawfy(res.get('raw_noise', self._raw_noise))
         self.mean = res.get('mean', self.mean)
@@ -188,12 +296,12 @@ class SimpleGP(object):
         yup = torch.vstack([self.y, ynew])
         K11 = self.kernel_matrix
         K12 = self._make_kernel_matrix(self.X, Xnew,
-                                      self.theta,
-                                      self.lengthscale)
-        K21 = K12.transpose(-2, -1)
-        K22_ = self._make_kernel_matrix(Xnew, Xnew,
                                        self.theta,
                                        self.lengthscale)
+        K21 = K12.transpose(-2, -1)
+        K22_ = self._make_kernel_matrix(Xnew, Xnew,
+                                        self.theta,
+                                        self.lengthscale)
         K22 = self._noisify_kernel_matrix(K22_, self.noise)
         K = torch.vstack([torch.hstack([K11, K12]),
                           torch.hstack([K21, K22])])
@@ -217,9 +325,9 @@ class SimpleGP(object):
 
     def kernel_function(self, X1, X2, diagonal=False):
         return self._make_kernel_matrix(X1, X2,
-                                       self.theta,
-                                       self.lengthscale,
-                                       diagonal=diagonal)
+                                        self.theta,
+                                        self.lengthscale,
+                                        diagonal=diagonal)
 
     def set_params_empirical_(self, X, y):
         mean = torch.mean(y) if 'mean' not in self.fixed_params else self.mean
@@ -248,18 +356,22 @@ class SimpleGP(object):
 
     @property
     def mean(self):
+        """Mean of GP"""
         return self._mean
 
     @property
     def theta(self):
+        """Kernel output scale"""
         return self._derawfy(self._raw_theta)
 
     @property
     def lengthscale(self):
+        """Kernel lengthscale"""
         return self._derawfy(self._raw_lengthscale)
 
     @property
     def noise(self):
+        """Noise of GP"""
         return self._derawfy(self._raw_noise)
 
     @theta.setter
@@ -276,11 +388,12 @@ class SimpleGP(object):
 
     @noise.setter
     def noise(self, x):
-        x = torch.clamp(x, 1e-20, None) #In order to avoid -infs for rawfy
+        x = torch.clamp(x, 1e-20, None)  # In order to avoid -infs for rawfy
         self._raw_noise = self._rawfy(x)
 
     @property
     def y(self):
+        """Evaluation tensor"""
         return self.y_ + self.ymax
 
     def _predict(self, xpred, return_cov=True, onlyvar=False):
@@ -311,7 +424,7 @@ class SimpleGP(object):
                 return pred_mean, pred_cov
             else:
                 Kxpxp = self._make_kernel_matrix(xpred, xpred, self.theta, self.lengthscale,
-                                                diagonal=True)
+                                                 diagonal=True)
                 Kxpxp += self.noise**2 + self.min_jitter
                 pred_var = Kxpxp - (kxpred_.transpose(-2, -1)**2).sum(dim=-1)
                 return pred_mean, pred_var
@@ -323,7 +436,7 @@ class SimpleGP(object):
         return utils.softplus(y)  # softmax
 
     def _make_kernel_matrix(self, X1, X2, theta, lengthscale,
-                           diagonal=False):
+                            diagonal=False):
         output = 'pairwise' if not diagonal else 'diagonal'
         K = kernel_functions.kernel_function(X1, X2,
                                              theta=theta,
@@ -370,9 +483,8 @@ class SimpleGP(object):
             lengthscale = torch.squeeze(lengthscale)
             assert lengthscale.ndim == 1
             assert lengthscale.shape[0] == self.dim
-            self.ard = True
+        elif ard:
+            lengthscale = torch.ones(self.dim)*lengthscale
         else:
-            self.ard = ard
-            if self.ard:
-                lengthscale = torch.ones(self.dim)*lengthscale
+            pass
         return lengthscale
