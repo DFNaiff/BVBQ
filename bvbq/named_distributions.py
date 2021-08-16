@@ -16,21 +16,25 @@ class NamedDistribution(object):
     """
     DESCRIBE HERE
 
-    Atributes
+    Attributes
     ---------
     basedistrib : distributions.ProbabilityDistribution
         Base distribution in R^n
     params_dict : dict
         Dictionary with keys containing parameter names,
         and values being a dict consisting of
-        'dim' -> int : Dimension of parameter
-        'bound' -> (float,float) : Bounds of parameter
-        'scale' -> torch.Tensor : Scaling factor of parameter
-        'warpf' -> (torch.Tensor -> torch.Tensor) :
+        
+        dim : int
+            Dimension of parameter    
+        bound : (float,float)
+            Bounds of parameter
+        scale : torch.Tensor
+            Scaling factor of parameter
+        warpf : Callable[torch.Tensor,torch.Tensor]
             Warping function from bounds to R
-        'iwarpf' -> (torch.Tensor -> torch.Tensor) :
+        iwarpf : Callable[torch.Tensor,torch.Tensor]
             Inverse warping function from bounds to R
-        'logdwarpf' -> (torch.Tensor -> torch.Tensor) :
+        logdwarpf : Callable[torch.Tensor,torch.Tensor]
             Log of derivative of warping
 
     """
@@ -60,7 +64,7 @@ class NamedDistribution(object):
                                 params_bound, params_scale)
         self.set_basedistrib(basedistrib)
 
-    def logprob(self, params):
+    def logprob(self, params, numpy=False):
         """
         Log probability of unwarped distribution
         logdensity_{X}(x) = logdensity_{warp(X)}(warp(X)) + sum_i logdwarp_i(X_i)
@@ -69,26 +73,31 @@ class NamedDistribution(object):
         ----------
         params : {str:[float]}
             The parameter values to be calculated log density
+        numpy : bool
+            If False, return torch.Tensor
+            If True, return np.array
 
         Returns
         -------
-        torch.Tensor
+        torch.Tensor or np.array
             Values of log density
 
         """
         # logdensity_{X}(x) = logdensity_{warp(X)}(warp(X)) + logdwarp(X)
         # Ordering
         assert self.basedistrib is not None
-        params_ = self._organize_params(params)
+        params_ = self.organize_params(params)
         joint_and_warped_x = self.join_and_warp_parameters(params_)
         uncorrected_res = self.basedistrib.logprob(joint_and_warped_x)
         corrections = [self.logdwarpf(key)(value)
                        for key, value in params_.items()]
         correction = torch.sum(torch.cat(corrections, dim=-1), dim=-1)
         res = uncorrected_res + correction
+        if numpy:
+            res = res.detach().numpy()
         return res
 
-    def sample(self, n):
+    def sample(self, n, numpy=False):
         """
         Sample from unwarped distribution
 
@@ -96,10 +105,12 @@ class NamedDistribution(object):
         ----------
         n : int
             Number of samples
-
+        numpy : bool
+            If False, return torch.Tensor as values
+            If True, return np.array as values
         Returns
         -------
-        params : {str:torch.Tensor}
+        params : {str:torch.Tensor} or {str:numpy.array}
             Samples from distribution
 
         """
@@ -107,6 +118,8 @@ class NamedDistribution(object):
         assert self.basedistrib is not None
         warped_samples = self.basedistrib.sample(n)
         samples = self.split_and_unwarp_parameters(warped_samples)
+        if numpy:
+            samples = {k:v.detach().numpy() for k,v in samples.items()}
         return samples
 
     def join_parameters(self, params):
@@ -124,7 +137,8 @@ class NamedDistribution(object):
             The joint parameter matrix
         """
 
-        return torch.cat([params[name] for name in self.names], dim=-1)
+        res = torch.cat([params[name] for name in self.names], dim=-1)
+        return res
 
     def join_and_warp_parameters(self, params):
         """
@@ -249,6 +263,12 @@ class NamedDistribution(object):
         """Total dimension of underlying domain"""
         return sum(self.dims.values())
 
+    def organize_params(self, params):
+        """Convert to torch.Tensor and organize in the order of param_dict"""
+        params_ = collections.OrderedDict([(key, utils.tensor_convert(params[key]))
+                                           for key in self.names])
+        return params_
+
     def _set_param_distrib(self, params_name, params_dim, params_bound, params_scale):
         if params_scale is None:
             params_scale = dict()
@@ -260,11 +280,6 @@ class NamedDistribution(object):
             param_dict[name] = {'dim': dim, 'bound': bound, 'scale': scale,
                                 'warpf': warpf, 'iwarpf': iwarpf, 'logdwarpf': logdwarpf}
         self.param_dict = param_dict
-
-    def _organize_params(self, params):
-        params_ = collections.OrderedDict([(key, utils.tensor_convert(params[key]))
-                                           for key in self.names])
-        return params_
 
 
 def get_warps(lb, ub, scale=1.0):

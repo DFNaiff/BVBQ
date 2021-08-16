@@ -15,6 +15,9 @@ from . import named_distributions
 
 
 class BVBQMixMVN(object):
+    """
+    Test docstring
+    """
     def __init__(self, params_name, params_dim, params_bound, params_scale=None):
         self.logprobgp = None
         self.mixmeans = None
@@ -52,8 +55,8 @@ class BVBQMixMVN(object):
         # TODO : Assertions, customization and new policies
         assert init_policy in ['manual', 'manual_mix']
         if init_policy == 'manual':
-            mean = kwargs.get('mean')
-            var = kwargs.get('var')
+            mean = kwargs.get('mean', torch.zeros(self.total_dim))
+            var = kwargs.get('var', 20*torch.ones(self.total_dim))
             mixmeans = torch.atleast_2d(utils.tensor_convert(mean))
             mixvars = torch.atleast_2d(utils.tensor_convert(var))
             mixweights = torch.ones(1)
@@ -82,13 +85,15 @@ class BVBQMixMVN(object):
         self.mixvars = mixvars
         self.mixweights = mixweights
 
-    def new_evaluation_point(self, name='PP'):
-        x0 = self.distribution.sample(1)[0, :]
+    def new_evaluation_point(self, name='PP', numpy=True):
+        x0 = self.base_distribution.sample(1)[0, :]
         x = acquisition.acquire_next_point_mixmvn(x0,
                                                   self.logprobgp,
-                                                  self.distribution,
+                                                  self.base_distribution,
                                                   name=name)
         params = self._named_distribution.split_and_unwarp_parameters(x)
+        if numpy:
+            params = {k:v.detach().numpy() for k,v in params.items()}
         return params
 
     def insert_new_evaluations(self, new_eval_params, new_eval_values):
@@ -98,8 +103,8 @@ class BVBQMixMVN(object):
         # FIXME: Fix this function
 #        self.logprobgp.update(x,y)
         # FIXME : Substitute below lines for actual (fixed) efficient update above
-        X = torch.vstack([self.eval_points, x])
-        y = torch.vstack([self.eval_values, y])
+        X = torch.vstack([self.warped_eval_params, x])
+        y = torch.vstack([self.warped_eval_values, y])
         self.logprobgp.set_data(X, y)
         self.eval_params = utils.vstack_params(self.eval_params, params_)
         #self.eval_values = torch

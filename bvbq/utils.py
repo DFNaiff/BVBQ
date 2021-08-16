@@ -166,3 +166,10 @@ def get_subdict(d, param):
 
     """
     return dict([(key, d[key][param]) for key in d.keys()])
+
+
+def vstack_params(params,new_params):
+    assert params.keys() == new_params.keys()
+    res = {k: torch.vstack([params[k], new_params[k]]) for k in params.keys()}
+    return res
+    
