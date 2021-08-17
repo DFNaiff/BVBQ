@@ -16,8 +16,6 @@ class SimpleGP(object):
     """
     Gaussian Process class for surrogate modeling
 
-    DEEPER DESCRIPTION
-
     Attributes
     ----------
     dim : int
@@ -102,9 +100,9 @@ class SimpleGP(object):
 
         Parameters
         ----------
-        X : [float]
+        X : List[float,float]
             Data matrix for GP
-        y : [float]
+        y : List[float]
             Evaluation vector for GP
         empirical_params : bool
             Whether kernel parameters are initialized empirically
@@ -137,13 +135,19 @@ class SimpleGP(object):
 
         Parameters
         ----------
-        xpred : [float]
+        xpred : List[float]
             Prediction points
         to_return : str
             If 'mean', return only mean of prediction
             If 'var', return mean and variance of prediction
             If 'cov' and xpred has less than 3 dimensions,
             return mean and covariance matrix of prediction
+        
+        Returns
+        -------
+        torch.Tensor or torch.Tensor, torch.Tensor
+            Mean, mean and varince, or mean and covariance, 
+            depending on to_return
         """
         xpred = utils.tensor_convert(xpred)
         s = xpred.shape
@@ -192,7 +196,7 @@ class SimpleGP(object):
 
         Parameters
         ----------
-        fixed_params : [str]
+        fixed_params : List[str]
             Parameters to be fixed in this optimization
         method : str
             Optimization method for dict-minimize
@@ -203,7 +207,7 @@ class SimpleGP(object):
 
         Returns
         -------
-        dict({str:torch.Tensor})
+        dict[str,torch.Tensor]
             A copy of optimal values found
         """
 
@@ -241,7 +245,7 @@ class SimpleGP(object):
 
         Parameters
         ----------
-        fixed_params : [str]
+        fixed_params : List[str]
             Parameters to be fixed in this optimization
         maxiter : int
             Number of steps for SGD
@@ -251,9 +255,10 @@ class SimpleGP(object):
             Learning rate of optimizer
         verbose : bool
             Whether to show maxiter steps
+
         Returns
         -------
-        dict({str:torch.Tensor})
+        dict[str,torch.Tensor]
             A copy of optimal values found
         """
 
@@ -306,9 +311,9 @@ class SimpleGP(object):
 
             Parameters
             ----------
-            Xnew : [float]
+            Xnew : List[float]
                 Data matrix of update points
-            ynew : [float]
+            ynew : List[float]
                 Evaluation vector of update points
         """
         # FIXME : Broken somehow
@@ -360,9 +365,9 @@ class SimpleGP(object):
 
         Parameters
         ----------
-        X1 : [float]
+        X1 : List[float]
             First kernel argument
-        X2 : [float]
+        X2 : List[float]
             Second kernel argument
         diagonal : bool
             If False, return pairwise kernel evaluations tensor

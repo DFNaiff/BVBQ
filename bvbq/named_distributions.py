@@ -14,7 +14,15 @@ from . import utils
 
 class NamedDistribution(object):
     """
-    DESCRIBE HERE
+    A distribution wrapper for distributions of named random 
+    variables in product subsets of R^n, with each variable 
+    being either defined on the real line, bounded from below, 
+    or bounded by an interval.
+    
+    The random variables X1,...,Xn are defined such as, for each 
+    warping function w1,...,wn from the domain of X to R^n, we have 
+    that w1(X1),...,wn(X1) ~ basedistrib, where basedistrib in 
+    a distributions.ProbabilityDistribution defined on R^n.
 
     Attributes
     ---------
@@ -47,16 +55,16 @@ class NamedDistribution(object):
         """
         Parameters
         ----------
-        params_name : [str]
+        params_name : List[str]
             Name of parameters
-        params_dim : [int]
+        params_dim : List[int]
             Dimension of each parameter in params_name
-        params_bound : [(float,float)]
+        params_bound : List[(float,float)]
             Lower and upper bound for each parameter in params_name
         basedistrib : None or distributions.ProbabilityDistribution
             If None, basedistribution is to be set later
             else, the base ProbabilityDistribution in R^n
-        params_scale : None or {str:[float]} dict
+        params_scale : None or dict[str,List[float]} dict
             If not None, the scale factor of each parameter
 
         """
@@ -71,7 +79,7 @@ class NamedDistribution(object):
 
         Parameters
         ----------
-        params : {str:[float]}
+        params : dict[str,List[float]]
             The parameter values to be calculated log density
         numpy : bool
             If False, return torch.Tensor
@@ -110,7 +118,7 @@ class NamedDistribution(object):
             If True, return np.array as values
         Returns
         -------
-        params : {str:torch.Tensor} or {str:numpy.array}
+        params : dict[str,torch.Tensor] or dict[str,numpy.array]
             Samples from distribution
 
         """
@@ -124,11 +132,11 @@ class NamedDistribution(object):
 
     def join_parameters(self, params):
         """
-        DESCRIPTION
+        Join the parameters in a unique tensor
 
         Parameters
         ----------
-        params : {str:torch.Tensor}
+        params : dict[str,torch.Tensor]
             The parameter values to be joined
 
         Returns
@@ -142,11 +150,12 @@ class NamedDistribution(object):
 
     def join_and_warp_parameters(self, params):
         """
-        DESCRIPTION
+        Join the parameters in a unique tensor, and 
+        warp then to R^n
 
         Parameters
         ----------
-        params : {str:torch.Tensor}
+        params : dict[str,torch.Tensor]
             The parameter values to be joined and warped
 
         Returns
@@ -161,7 +170,7 @@ class NamedDistribution(object):
 
     def split_parameters(self, x):
         """
-        DESCRIPTION
+        Split the tensor x into each corresponding parameter
 
         Parameters
         ----------
@@ -170,7 +179,7 @@ class NamedDistribution(object):
 
         Returns
         -------
-        params : {str:torch.Tensor}
+        params : dict[str,torch.Tensor]
             The splitted parameter values
 
         """
@@ -179,7 +188,8 @@ class NamedDistribution(object):
 
     def split_and_unwarp_parameters(self, x):
         """
-        DESCRIPTION
+        Split the tensor x into each corresponding parameter, 
+        and warp then from R^n to the original domain
 
         Parameters
         ----------
@@ -188,7 +198,7 @@ class NamedDistribution(object):
 
         Returns
         -------
-        params : {str:torch.Tensor}
+        params : dict[str,torch.Tensor]
             The splitted and unwarped parameter values
 
         """
@@ -215,31 +225,43 @@ class NamedDistribution(object):
         return self
 
     def dim(self, key):
-        """Returns the dimension of 'key' parameter"""
+        """int : returns the dimension of 'key' parameter"""
         return self.param_dict[key]['dim']
 
     def bound(self, key):
-        """Returns the bound of 'key' parameter"""
+        """tuple[float] : Returns the bound of 'key' parameter"""
         return self.param_dict[key]['bound']
 
     def scale(self, key):
-        """Returns the scale of 'key' parameter"""
+        """tuple[float] : Returns the scale of 'key' parameter"""
         return self.param_dict[key]['scale']
 
     def warpf(self, key):
-        """Returns the warping function of 'key' parameter"""
+        """
+        Callable[torch.Tensor,torch.Tensor]: 
+        Returns the warping function of 'key' parameter
+        """
         return self.param_dict[key]['warpf']
 
     def iwarpf(self, key):
-        """Returns the inverse warping function of 'key' parameter"""
+        """
+        Callable[torch.Tensor,torch.Tensor]
+        Returns the inverse warping function of 'key' parameter
+        """
         return self.param_dict[key]['iwarpf']
 
     def logdwarpf(self, key):
-        """Returns the log of derivative of warping of 'key' parameter"""
+        """
+        Callable[torch.Tensor,torch.Tensor]
+        Returns the log of derivative of warping of 'key' parameter
+        """
         return self.param_dict[key]['logdwarpf']
 
     def logdiwarpf(self, key):
-        """Returns the log of derivative of inverse warping of 'key' parameter"""
+        """
+        Callable[torch.Tensor,torch.Tensor]
+        Returns the log of derivative of inverse warping of 'key' parameter
+        """
         #D(w^{-1})(y) = Dw(w^{-1}(y))
         def f(x):
             return self.logdwarpf(key)(self.iwarpf(key)(x))
@@ -247,27 +269,27 @@ class NamedDistribution(object):
 
     @property
     def names(self):
-        """[str] : Names of parameters"""
+        """list[str] : names of parameters"""
         return list(self.param_dict.keys())
 
     @property
     def dims(self):
-        """{str:int} : Dimension dictionary of parameters"""
+        """dict[str,int] : dimension dictionary of parameters"""
         return utils.get_subdict(self.param_dict, 'dim')
 
     @property
     def bounds(self):
-        """{str:(float,float)} : Bounds dictionary of parameters"""
+        """dict[str:(float,float)] : sounds dictionary of parameters"""
         return utils.get_subdict(self.param_dict, 'bound')
 
     @property
     def scales(self):
-        """{str:(float,float)} : Scales dictionary of parameters"""
+        """dict[str:List[float]] : scales dictionary of parameters"""
         return utils.get_subdict(self.param_dict, 'scacle')
 
     @property
     def total_dim(self):
-        """Total dimension of underlying domain"""
+        """int : total dimension of underlying domain"""
         return sum(self.dims.values())
 
     def organize_params(self, params):
@@ -339,12 +361,13 @@ def get_warps(lb, ub, scale=1.0):
 def base_positive_warps():
     """
     Get warp functions associated with domain (0,inf), scale 1.0
-
+    Warp function is defined as f(x) = log(exp(x)-1)
+    
     Returns
     -------
-    (torch.Tensor -> torch.Tensor),
-    (torch.Tensor -> torch.Tensor),
-    (torch.Tensor -> torch.Tensor)
+    Callable[torch.Tensor,torch.Tensor],
+    Callable[torch.Tensor,torch.Tensor],
+    Callable[torch.Tensor,torch.Tensor]
         Function from (0,inf) to R, from R to (0,inf),
         and log of derivative of function from (0,inf) to R
     """
@@ -356,13 +379,14 @@ def base_positive_warps():
 
 def base_bounded_warps():
     """
-    Get warp functions associated with domain (-1,1), scale 1.0
+    Get warp functions associated with domain (-1,1), scale 1.0.
+    Warp function is defined as f(x) = atanh(x)
 
     Returns
     -------
-    (torch.Tensor -> torch.Tensor),
-    (torch.Tensor -> torch.Tensor),
-    (torch.Tensor -> torch.Tensor)
+    Callable[torch.Tensor,torch.Tensor],
+    Callable[torch.Tensor,torch.Tensor],
+    Callable[torch.Tensor,torch.Tensor]
         Function from (-1,1) to R, from R to (-1,1),
         and log of derivative of function from (-1,1) to R
     """
