@@ -37,17 +37,20 @@ class BVBQMixMVN(object):
                         noise=0.0, mean=-30.0, empirical_params=False,
                         **kwargs):
         # TODO : Assertions, customizations and new policies
-        params_ = self._named_distribution.organize_params(eval_params)
-        values_ = utils.tensor_convert(eval_values)
-        xdata_gp, ydata_gp = self.warp_data(params_, values_)
+        # Set GP
+        #HACK : Has to define GP before setting data,
+        #       due to need for possibly capping data
         logprobgp = gp.SimpleGP(self.total_dim, kind=kind,
                                 noise=noise, zeromax=True)
         logprobgp.mean = mean
         logprobgp.fix_mean()
         logprobgp.fix_noise()
-        logprobgp.set_data(xdata_gp, ydata_gp,
-                           empirical_params=empirical_params)
         self.logprobgp = logprobgp
+        params_ = self._named_distribution.organize_params(eval_params)
+        values_ = utils.tensor_convert(eval_values)
+        xdata_gp, ydata_gp = self.warp_data(params_, values_)
+        self.logprobgp.set_data(xdata_gp, ydata_gp,
+                           empirical_params=empirical_params)
         self.eval_params = params_
         self.eval_values = values_
 
@@ -148,7 +151,7 @@ class BVBQMixMVN(object):
         raise NotImplementedError
         # return xdata
 
-    def warp_data(self, params, evals):
+    def warp_data(self, params, evals, clamp_evals=True):
         xdata = self._named_distribution.join_and_warp_parameters(params)
         # Minus sign in correction
         corrections = [-self._named_distribution.logdwarpf(key)(value)
@@ -156,6 +159,9 @@ class BVBQMixMVN(object):
         correction = torch.sum(torch.cat(corrections, dim=-1), dim=-1)
         correction = correction.reshape(*evals.shape)
         ydata = evals - correction
+        if clamp_evals:
+            #ydata = torch.clamp(ydata, min=self.gpmean)
+            ydata = utils.logbound(ydata, self.gpmean)
         return xdata, ydata
 
     def surrogate_prediction(self, params):
@@ -181,7 +187,6 @@ class BVBQMixMVN(object):
     def distribution(self):
         return self._named_distribution.set_basedistrib(self.base_distribution)
 
-    # XXX: This actually performs computation
     @property
     def optimize_gp_params_qn(self):
         return self.logprobgp.optimize_params_qn
@@ -198,6 +203,14 @@ class BVBQMixMVN(object):
     def warped_eval_values(self):
         return self.logprobgp.y
 
+    @property
+    def eval_params_numpy(self):
+        return {k:v.numpy() for k,v in self.eval_params.items()}
+    
+    @property
+    def eval_values_numpy(self):
+        return self.eval_values.numpy()
+    
     @property
     def dim(self):
         return self._named_distribution.dim
@@ -229,3 +242,7 @@ class BVBQMixMVN(object):
     @property
     def total_dim(self):
         return self._named_distribution.total_dim
+    
+    @property
+    def gpmean(self):
+        return self.logprobgp.mean
