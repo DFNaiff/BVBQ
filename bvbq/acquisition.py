@@ -13,37 +13,41 @@ from . import acquisition_functions
 from . import utils
 
 
-def acquire_next_point_mixmvn(x, gp, distrib, name='PP',
+def acquire_next_point_mixmvn(x, gp, distrib,
+                              name='PP',
+                              unwarped=False,
                               method='L-BFGS-B', tol=1e-6,
                               options=None):
     """
-        Optimizer method for selecting next evaluation point,
-        that is, xnew = max_x f(x;gp,distrib)
+    Optimizer method for selecting next evaluation point,
+    that is, xnew = max_x f(x;gp,distrib)
 
-        Parameters
-        ----------
-        x : torch.Tensor
-            Initial guess for optimization
-        gp : SimpleGP
-            The associated gp class
-        distrib : ProbabilityDistribution
-            The associated distribution object
-        name : str
-            The name of the acquisition function to be used.
-            'PP' - Prospective prediction
-            'MMLT' - Moment matched log transform
-            'PMMLT' - Prospective moment matched log transform
-        method : str
-            The optimization method to be used in dict_minimize
-        tol : float
-            Tolerance for optimizer method
-        options: None or dict
-            Options for the optimizer
+    Parameters
+    ----------
+    x : torch.Tensor
+        Initial guess for optimization
+    gp : SimpleGP
+        The associated gp class
+    distrib : ProbabilityDistribution
+        The associated distribution object
+    unwarped : bool
+        If True, ajust mean and logprob to correspond to unwarped density
+    name : str
+        The name of the acquisition function to be used.
+        'PP' - Prospective prediction
+        'MMLT' - Moment matched log transform
+        'PMMLT' - Prospective moment matched log transform
+    method : str
+        The optimization method to be used in dict_minimize
+    tol : float
+        Tolerance for optimizer method
+    options: None or dict
+        Options for the optimizer
 
-        Returns
-        -------
-        torch.Tensor
-            The proposed evaluation point
+    Returns
+    -------
+    torch.Tensor
+        The proposed evaluation point
         
     """
     options = dict() if options is None else options

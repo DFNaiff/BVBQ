@@ -33,7 +33,7 @@ class BVBQMixMVN(object):
             params_scale)
         self.nmixtures = 0
 
-    def initialize_data(self, eval_params, eval_values, kind='smatern52',
+    def initialize_data(self, eval_params, eval_values, kind='smatern32',
                         noise=0.0, mean=-30.0, empirical_params=False,
                         **kwargs):
         # TODO : Assertions, customizations and new policies
@@ -85,18 +85,20 @@ class BVBQMixMVN(object):
         self.mixvars = mixvars
         self.mixweights = mixweights
 
-    def new_evaluation_point(self, name='PP', numpy=True):
+    def new_evaluation_point(self, name='PP', unwarped=False, numpy=True):
         x0 = self.base_distribution.sample(1)[0, :]
         x = acquisition.acquire_next_point_mixmvn(x0,
                                                   self.logprobgp,
-                                                  self.base_distribution,
-                                                  name=name)
+                                                  self.distribution,
+                                                  name=name,
+                                                  unwarped=unwarped)
         params = self._named_distribution.split_and_unwarp_parameters(x)
         if numpy:
             params = {k:v.detach().numpy() for k,v in params.items()}
         return params
 
-    def insert_new_evaluations(self, new_eval_params, new_eval_values):
+    def insert_new_evaluations(self, new_eval_params, new_eval_values,
+                               empirical_params = True):
         params_ = self._named_distribution.organize_params(new_eval_params)
         values_ = utils.tensor_convert(new_eval_values)
         x, y = self.warp_data(params_, values_)

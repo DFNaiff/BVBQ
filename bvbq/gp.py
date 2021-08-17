@@ -92,9 +92,9 @@ class SimpleGP(object):
         self.mean = mean  # THIS IS THE MEAN AFTER ZEROMAX TRANSFORMATION.
         # IF NOT USING ZEROMAX TRANSFORMATION, IGNORE
         # THIS WARNING
-        self.theta = utils.tensor_convert(theta)
+        self.theta = theta
         self.lengthscale = self._set_lengthscale(lengthscale, ard)
-        self.noise = utils.tensor_convert(noise)
+        self.noise = noise
 
     def set_data(self, X, y, empirical_params=False):
         """
@@ -403,6 +403,10 @@ class SimpleGP(object):
         if 'lengthscale' not in self.fixed_params:
             self.lengthscale = lengthscale
 
+    def kernel_matrix_condition_number(self, p=None):
+        """Condition number of the kernel matrix"""
+        return torch.linalg.cond(self.kernel_matrix, p=p)
+    
     def fix_noise(self):
         """Fix noise for optimization"""
         self.fixed_params.add('noise')
@@ -441,20 +445,30 @@ class SimpleGP(object):
 
     @theta.setter
     def theta(self, x):
+        x = utils.tensor_convert(x)
         self._raw_theta = self._rawfy(x)
+        if self.kernel_matrix is not None: #Recalculate matrixes
+            self.set_data(self.X, self.y)
 
     @mean.setter
     def mean(self, x):
-        self._mean = utils.tensor_convert(x)
+        x = utils.tensor_convert(x)
+        self._mean = x
 
     @lengthscale.setter
     def lengthscale(self, x):
+        x = utils.tensor_convert(x)
         self._raw_lengthscale = self._rawfy(x)
-
+        if self.kernel_matrix is not None: #Recalculate matrixes
+            self.set_data(self.X, self.y)
+            
     @noise.setter
     def noise(self, x):
+        x = utils.tensor_convert(x)
         x = torch.clamp(x, 1e-20, None)  # In order to avoid -infs for rawfy
         self._raw_noise = self._rawfy(x)
+        if self.kernel_matrix is not None: #Recalculate matrixes
+            self.set_data(self.X, self.y)
 
     @property
     def y(self):

@@ -2,7 +2,7 @@
 # pylint: disable=E1101
 """
 Wrapper and warper for distribution in
-arbitrary (connected) separable spaces
+arbitrary (connected) product subsets of R^n
 """
 
 import collections
@@ -152,7 +152,7 @@ class NamedDistribution(object):
         Returns
         -------
         torch.Tensor
-            The joint and warpedparameter matrix
+            The joint and warped parameter matrix
         """
 
         tocat = [self.warpf(name)(params[name]) for name in self.names]
@@ -197,7 +197,7 @@ class NamedDistribution(object):
         res = dict([(name, self.iwarpf(name)(splits[i]))
                     for i, name in enumerate(self.names)])
         return res
-
+        
     def set_basedistrib(self, basedistrib):
         """
         Set base distribution
@@ -237,6 +237,13 @@ class NamedDistribution(object):
     def logdwarpf(self, key):
         """Returns the log of derivative of warping of 'key' parameter"""
         return self.param_dict[key]['logdwarpf']
+
+    def logdiwarpf(self, key):
+        """Returns the log of derivative of inverse warping of 'key' parameter"""
+        #D(w^{-1})(y) = Dw(w^{-1}(y))
+        def f(x):
+            return self.logdwarpf(key)(self.iwarpf(key)(x))
+        return f
 
     @property
     def names(self):
