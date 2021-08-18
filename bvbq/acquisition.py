@@ -65,6 +65,34 @@ def acquire_next_point_mixmvn(x, gp, distrib,
     return xres
 
 
+def wiggles_acquisition_point(x, gp, nsamples=100, lfactor=0.2):
+    """
+    Wiggles x in order to increase distance from gp points, 
+    thus trying to increase stability
+    
+    Parameters
+    ----------
+    x : torch.Tensor
+        Point to be wiggled
+    gp : SimpleGP
+        The associated gp class
+    nsamples : int
+        Number of samples for wiggling
+    lfactor : float
+        Factor to multiply GP lengthscale in wiggling ball
+        
+    Returns
+    -------
+    torch.Tensor
+        Wiggled point
+
+    """
+    xdata = gp.X
+    r = lfactor*gp.lengthscale
+    x = utils.get_greater_distance_random(x,xdata,r,nsamples)
+    return x
+
+    
 def _map_name_acqfunction(name):
     """A simple string -> acqfunction map"""
     if name in ['prospective_prediction', 'PP']:

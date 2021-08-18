@@ -43,8 +43,6 @@ class BVBQMixMVN(object):
         If not None, variances of approximate distribution mixtures
     mixweights: torch.Tensor or None
         If not None, weights of approximate distribution mixtures
-    nmixtures: int
-        Number of mixtures of approximate distribution mixtures
     eval_params: dict[str:torch.Tensor] or None
         If not None, evaluations points of unnormalized log-density
     eval_values: torch.Tensor or None
@@ -72,7 +70,6 @@ class BVBQMixMVN(object):
         self.mixweights = None
         self.eval_params = None
         self.eval_values = None
-        self.nmixtures = 0
         self._named_distribution = named_distributions.NamedDistribution(
             params_name,
             params_dim,
@@ -148,18 +145,15 @@ class BVBQMixMVN(object):
             mixmeans = torch.atleast_2d(utils.tensor_convert(mean))
             mixvars = torch.atleast_2d(utils.tensor_convert(var))
             mixweights = torch.ones(1)
-            nmixtures = 1
         elif init_policy == 'manual_mix':
             mixmeans = kwargs.get('mixmeans')
             mixvars = kwargs.get('mixvars')
             mixweights = kwargs.get('mixweights')
             mixmeans, mixvars, mixweights = \
                 utils.tensor_convert_(mixmeans, mixvars, mixweights)
-            nmixtures = mixmeans.shape[0]
         self.mixmeans = mixmeans
         self.mixvars = mixvars
         self.mixweights = mixweights
-        self.nmixtures = nmixtures
 
     def update_distribution(self):
         """
@@ -182,7 +176,8 @@ class BVBQMixMVN(object):
         self.mixvars = mixvars
         self.mixweights = mixweights
 
-    def new_evaluation_point(self, name='PP', unwarped=False, numpy=True):
+    def new_evaluation_point(self, name='PP', unwarped=False, numpy=True,
+                             take_distance=False, nsamples=100, lfactor=0.2):
         """
         Propose new evaluation point for unnormalized log-density
 
@@ -199,6 +194,15 @@ class BVBQMixMVN(object):
         numpy : bool
             If True, return parameter values as numpy.array
             If False, return parameter values as torch.Tensor
+        take_distance : bool
+            If True, after getting acquisition function, wiggles it 
+            to get some distance from other points, 
+            in order to avoid instability in GP
+        nsamples : int
+            If take_distance is True, number of samples for wiggling
+        lfactor : float
+            If take_distance is True, factor to multiply GP lengthscale 
+            in wiggling ball
 
         Returns
         -------
@@ -212,6 +216,11 @@ class BVBQMixMVN(object):
                                                   self.distribution,
                                                   name=name,
                                                   unwarped=unwarped)
+        if take_distance:
+            x = acquisition.wiggles_acquisition_point(x,
+                                                      self.logprobgp,
+                                                      nsamples,
+                                                      lfactor)
         params = self._named_distribution.split_and_unwarp_parameters(x)
         if numpy:
             params = {k: v.detach().numpy() for k, v in params.items()}
@@ -262,6 +271,25 @@ class BVBQMixMVN(object):
         self.mixvars = mixvars
         self.mixweights = mixweights
 
+    def cut_components(self, cutoff_limit=1e-6):
+        """
+        Remove components of mixture whose weights 
+        are below some cutoff point
+    
+        Parameters
+        ----------
+        cutoff_limit : float
+            Cutoff point for weights
+        """
+        mixmeans,mixvars,mixweights = \
+            utils.cut_components_mixmvn(self.mixmeans,
+                                        self.mixvars,
+                                        self.mixweights,
+                                        cutoff_limit=cutoff_limit)
+        self.mixmeans = mixmeans
+        self.mixvars = mixvars
+        self.mixweights = mixweights
+        
     def elbo_metric(self, nsamples=1000):
         """Get mean and var of current ELBO on GP"""
         return metrics.bq_mixmvn_elbo_with_var(self.logprobgp,
@@ -340,7 +368,7 @@ class BVBQMixMVN(object):
         corrected_pred = ypred + correction
         res = corrected_pred
         return res
-
+    
     @property
     def base_distribution(self):
         """
@@ -423,6 +451,11 @@ class BVBQMixMVN(object):
         return self._named_distribution.total_dim
 
     @property
+    def nmixtures(self):
+        """ int: number of mixtures of approximate distribution mixtures"""
+        return len(self.mixweights)
+
+    @property
     def gpmean(self):
         """Base mean of GP"""
         return self.logprobgp.mean
@@ -438,7 +471,7 @@ class BVBQMixMVN(object):
         corrections = [-self._named_distribution.logdwarpf(key)(value)
                        for key, value in params.items()]
         correction = torch.sum(torch.cat(corrections, dim=-1), dim=-1)
-        correction = correction.reshape(*evals.shape)
+        correction = correction.reshape(shape=evals.shape)
         ydata = evals - correction
         if clamp_evals:
             #ydata = torch.clamp(ydata, min=self.gpmean)

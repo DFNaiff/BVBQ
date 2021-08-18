@@ -6,6 +6,7 @@ arbitrary (connected) product subsets of R^n
 """
 
 import collections
+import math
 
 import torch
 
@@ -346,7 +347,7 @@ def get_warps(lb, ub, scale=1.0):
         logdwarpf = lambda x: bldwf((x-lb)/scale) - torch.log(scale)
     elif lb is None and ub is not None:
         raise NotImplementedError
-    elif lb is None and ub is not None: #(lb,ub) -> (-1,1)
+    elif lb is not None and ub is not None: #(lb,ub) -> (-1,1)
         bwf, biwf, bldwf = base_bounded_warps()
         assert ub > lb
         a = (ub - lb)/2
@@ -375,6 +376,26 @@ def base_positive_warps():
     iwarpf = utils.softplus
     logdwarpf = lambda x: x - utils.invsoftplus(x)
     return warpf, iwarpf, logdwarpf
+
+
+#def base_bounded_warps():
+#    """
+#    Get warp functions associated with domain (-1,1), scale 1.0.
+#    Warp function is defined as f(x) = 2/pi*tan(pi/2*x)
+#
+#    Returns
+#    -------
+#    Callable[torch.Tensor,torch.Tensor],
+#    Callable[torch.Tensor,torch.Tensor],
+#    Callable[torch.Tensor,torch.Tensor]
+#        Function from (-1,1) to R, from R to (-1,1),
+#        and log of derivative of function from (-1,1) to R
+#    """
+#    # [-1,1] -> R
+#    warpf = lambda x: 2/math.pi*torch.tan(math.pi/2*x)
+#    iwarpf = lambda x :2/math.pi*torch.atan(math.pi/2*x)
+#    logdwarpf = lambda x: -2*torch.log(torch.cos(math.pi/2*x))
+#    return warpf, iwarpf, logdwarpf
 
 
 def base_bounded_warps():

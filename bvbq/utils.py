@@ -169,7 +169,94 @@ def get_subdict(d, param):
 
 
 def vstack_params(params,new_params):
+    """
+    Stacks vertically for each key in params, new_params
+    """
     assert params.keys() == new_params.keys()
     res = {k: torch.vstack([params[k], new_params[k]]) for k in params.keys()}
     return res
+
+
+def sample_concentrated_unit_ball(shape):
+    """
+    Samples from the unit ball non-uniformly, 
+    with direction being sampled uniformly, 
+    and radius being samples from Uniform[0,1]
+    (non-uniformity is to avoid concentration on surface
+    effects)
     
+    Parameters
+    ----------
+    shape : List[int]
+        shape of samples
+    
+    Returns
+    -------
+    torch.Tensor
+        Samples
+
+    """
+
+    x = torch.randn(*shape)
+    x /= torch.linalg.vector_norm(x,dim=-1,keepdim=True)
+    u = torch.rand(*(shape[:-1] + (1,)))
+    x *= u
+    return x
+
+def min_dist2(x,xdata):
+    """
+    Gets minimum of distance between x and each element of xdata
+    
+    Parameters
+    ----------
+    x : torch.Tensor
+        Points from which to minimize distance
+    xdata : torch.Tensor
+        Points for measuring distances to be minimized
+    
+    Returns
+    -------
+    torch.Tensor
+        Minimum of distance
+
+    """
+    #xdata : (n,d)
+    #x : (...,d)
+    x_ = torch.unsqueeze(x,-2) #(...,1,d)
+    dist2 = (x_ - xdata).square().sum(dim=-1) #(...,n,d) -> (...,n)
+    res = torch.min(dist2,axis=-1).values
+    return res
+
+def get_greater_distance_random(x0,xdata,r,nsamples=100):
+    """
+    Wiggles x0 in order to get more distance from xdata.
+    Will be explained better.
+    
+    Parameters
+    ----------
+    x0 : torch.Tensor
+        Points from which to wiggle
+    xdata : torch.Tensor
+        Points for measuring distances to be minimized
+    r : float or torch.Tensor
+        Sample ball radius (or ellipsis)
+    nsamples : int
+        Number of samples
+    
+    Returns
+    -------
+    torch.Tensor
+        Wiggled distances
+
+    """
+    #x0 : (...,d)
+    #xdata : (n,d)
+    d = x0.shape[-1]
+    b = sample_concentrated_unit_ball(x0.shape[:-1] + (nsamples,d))
+    x = r*b + torch.unsqueeze(x0,-2) #(...,n,d)
+    mdist2 = min_dist2(x,xdata) #(...,n)
+    imax = torch.max(mdist2,axis=-1).indices
+    imax_ = torch.stack([imax[...,None]]*d,axis=-1)
+    xmax = torch.gather(x,-2,imax_)
+    xmax = torch.squeeze(xmax,-2)
+    return xmax
