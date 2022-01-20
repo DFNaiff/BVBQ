@@ -20,7 +20,8 @@ def propose_component_mvn_mixmvn_relbo(logprobgp,
                                        nsamples=100,
                                        maxiter=100,
                                        optim=torch.optim.Adam,
-                                       lr=1e-1):
+                                       lr=1e-1,
+                                       varmode='std'):
     """
         Propose new component for mixture of diagonal Gaussians
         using RELBO objective function, using stochastic gradient
@@ -46,7 +47,9 @@ def propose_component_mvn_mixmvn_relbo(logprobgp,
             Optimizer to be used
         lr : float
             Learning rate of optimizer
-
+        varmode : str
+            What variable are we using for calculating variance.
+            Options - ['std', 'var', 'prec']
         Returns
         -------
         torch.Tensor, torch.Tensor
@@ -56,14 +59,26 @@ def propose_component_mvn_mixmvn_relbo(logprobgp,
     ndim = mixmeans.shape[1]
     mean0 = distributions.MixtureDiagonalNormalDistribution.sample_(
         1, mixmeans, mixvars, mixweights)
-    var0 = torch.distributions.HalfNormal(1.0).sample((ndim,))
-    rawvar0 = torch.log(torch.exp(var0)-1)
-    optimizer = optim([mean0, rawvar0], lr=lr)
+    
+    rawing_function = lambda x : torch.log(torch.exp(x) - 1)
+    unrawing_function = lambda y : torch.log(torch.exp(y) + 1)
+    if varmode == 'std':
+        tovar = lambda x : x**2
+    elif varmode == 'var':
+        tovar = lambda x : x
+    elif varmode == 'prec':
+        tovar = lambda x : 1/(x**2)
+    else:
+        raise ValueError
+    uvar0 = torch.distributions.HalfNormal(1.0).sample((1, 1)) #(1, ndim)
+    rawuvar0 = rawing_function(uvar0)
+
+    optimizer = optim([mean0, rawuvar0], lr=lr)
     mean0.requires_grad = True
-    rawvar0.requires_grad = True
+    rawuvar0.requires_grad = True
     for _ in range(maxiter):
         optimizer.zero_grad()
-        var0 = torch.log(torch.exp(rawvar0)+1)
+        var0 = tovar(unrawing_function(rawuvar0))
         reg = torch.rand(1)
         relbo = bvbq_functions.mcbq_dmvn_relbo(logprobgp,
                                                mean0,
@@ -77,8 +92,8 @@ def propose_component_mvn_mixmvn_relbo(logprobgp,
         loss.backward()
         optimizer.step()
     mean = mean0.detach()
-    rawvar = rawvar0.detach()
-    var = torch.log(torch.exp(rawvar)+1)
+    rawuvar = rawuvar0.detach()
+    var = tovar(unrawing_function(rawuvar)).expand((1, ndim))
     return mean, var
 
 

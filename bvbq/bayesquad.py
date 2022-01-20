@@ -27,7 +27,7 @@ def monte_carlo_bayesian_quadrature(gp, distrib, nsamples, return_var=True):
         Parameters
         ----------
         gp : SimpleGP
-            The Gaussian Process object to be integrated
+            The Gaussian process object to be integrated
         distrib : ProbabilityDistribution
             The associated distribution object
         nsamples : int

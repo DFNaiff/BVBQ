@@ -13,6 +13,8 @@ Future developments may include non-product domains such as spheres.
 
 Further reference on the method can be found in REFERENCE
 
+OLD API EXAMPLE - IGNORE FOR NOW
+
 Example
 --------
 >>> from bvbq import BVBQMixMVN #Main inference object

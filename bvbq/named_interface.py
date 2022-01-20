@@ -50,7 +50,8 @@ class BVBQMixMVN(object):
 
     """
 
-    def __init__(self, params_name, params_dim, params_bound, params_scale=None):
+    def __init__(self, params_name, params_dim, params_bound,
+                 params_scale=None, varmode='std'):
         """
         Parameters
         ----------
@@ -62,7 +63,9 @@ class BVBQMixMVN(object):
             Lower and upper bound for each parameter in params_name
         params_scale : None or dict[str,List[float]} dict
             If not None, the scale factor of each parameter
-
+        varmode : str
+            What variable are we using for calculating variance.
+            Options - ['std', 'var', 'prec']
         """
         self.logprobgp = None
         self.mixmeans = None
@@ -70,6 +73,7 @@ class BVBQMixMVN(object):
         self.mixweights = None
         self.eval_params = None
         self.eval_values = None
+        self.varmode = varmode
         self._named_distribution = named_distributions.NamedDistribution(
             params_name,
             params_dim,
@@ -157,7 +161,7 @@ class BVBQMixMVN(object):
 
     def update_distribution(self):
         """
-        Update distributioh through gradient boosting
+        Update distribution through gradient boosting
 
         """
         #TODO : Customization
@@ -165,7 +169,8 @@ class BVBQMixMVN(object):
             self.logprobgp,
             self.mixmeans,
             self.mixvars,
-            self.mixweights)
+            self.mixweights,
+            varmode=self.varmode)
         mixmeans, mixvars, mixweights = bvbq.update_distribution_mvn_mixmvn(
             self.logprobgp,
             mean, var,
