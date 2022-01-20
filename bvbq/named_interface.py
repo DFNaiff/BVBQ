@@ -176,7 +176,7 @@ class BVBQMixMVN(object):
         self.mixvars = mixvars
         self.mixweights = mixweights
 
-    def new_evaluation_point(self, name='PP', unwarped=False, numpy=True,
+    def new_evaluation_point(self, name='WE', unwarped=False, numpy=True,
                              take_distance=False, nsamples=100, lfactor=0.2):
         """
         Propose new evaluation point for unnormalized log-density
@@ -188,6 +188,7 @@ class BVBQMixMVN(object):
             'PP' - Prospective prediction
             'MMLT' - Moment matched log transform
             'PMMLT' - Prospective moment matched log transform
+            'WE' - Warped entropy
         unwarped : bool
             If True, ajust mean and logprob of acquisition function 
             to correspond to unwarped density
@@ -210,8 +211,10 @@ class BVBQMixMVN(object):
             Proposed evaluation point
 
         """
+        if self.nmixtures == 0 and name in ['PP', 'MMLT']:
+            raise ValueError("%s can't be used with no distribution"%name)
         x0 = self.base_distribution.sample(1)[0, :]
-        x = acquisition.acquire_next_point_mixmvn(x0,
+        x, y = acquisition.acquire_next_point_mixmvn(x0,
                                                   self.logprobgp,
                                                   self.distribution,
                                                   name=name,
@@ -224,7 +227,8 @@ class BVBQMixMVN(object):
         params = self._named_distribution.split_and_unwarp_parameters(x)
         if numpy:
             params = {k: v.detach().numpy() for k, v in params.items()}
-        return params
+            y = y.detach().numpy().item()
+        return params, y
 
     def insert_new_evaluations(self, new_eval_params, new_eval_values,
                                empirical_params=True):

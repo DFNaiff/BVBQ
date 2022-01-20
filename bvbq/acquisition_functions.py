@@ -73,6 +73,35 @@ def moment_matched_log_transform(x, gp, distrib, unwarped=False):
     return res
 
 
+def warped_entropy(x, gp, distrib, unwarped=False):
+    """
+    Warped entropy acquisition function
+    
+    Parameters
+    ----------
+    x : torch.Tensor
+        Evaluation point
+    gp : gp.SimpleGP
+        GP approximating (warped) log density
+    distrib : named_distributions.NamedDistribution
+        Named distribution approximating log density
+    unwarped : bool
+        If True, ajust mean and logprob to correspond to unwarped density
+    
+    Returns
+    -------
+    torch.Tensor
+        The acquisition function value
+
+    """
+    mean, var = gp.predict(x, to_return='var')
+    if unwarped:
+        correction = _apply_unwarped_correction(x, distrib)
+        mean = mean + correction
+    res = torch.log(var)/2.0 + mean
+    return res
+
+
 def prospective_mmlt(x, gp, distrib, unwarped=False):
     """
     Prospective moment matched log transform acquisition function

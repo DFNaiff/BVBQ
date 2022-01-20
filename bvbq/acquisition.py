@@ -37,6 +37,7 @@ def acquire_next_point_mixmvn(x, gp, distrib,
         'PP' - Prospective prediction
         'MMLT' - Moment matched log transform
         'PMMLT' - Prospective moment matched log transform
+        'WE' - Warped entropy
     method : str
         The optimization method to be used in dict_minimize
     tol : float
@@ -46,8 +47,8 @@ def acquire_next_point_mixmvn(x, gp, distrib,
 
     Returns
     -------
-    torch.Tensor
-        The proposed evaluation point
+    torch.Tensor, torch.Tensor
+        The proposed evaluation point and the value
         
     """
     options = dict() if options is None else options
@@ -62,7 +63,8 @@ def acquire_next_point_mixmvn(x, gp, distrib,
                                            tol=tol,
                                            options=options)
     xres = res['x'].detach()
-    return xres
+    yres = -acqf_wrapper(res).detach()
+    return xres, yres
 
 
 def wiggles_acquisition_point(x, gp, nsamples=100, lfactor=0.2):
@@ -101,4 +103,6 @@ def _map_name_acqfunction(name):
         acqf = acquisition_functions.moment_matched_log_transform
     elif name in ['prospective_mmlt', 'PMMLT']:
         acqf = acquisition_functions.prospective_mmlt
+    elif name in ['warped_entropy', 'WE']:
+        acqf = acquisition_functions.warped_entropy
     return acqf

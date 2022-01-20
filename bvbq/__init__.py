@@ -31,7 +31,7 @@ Example
 >>> sigma = scipy.stats.gamma(5).rvs(size=(ndata, 1))
 >>> mu = np.random.randn(ndata, 1)*sigma
 >>> params_init = {'mu':mu, 'sigma':sigma}
->>> params_evals = baselogprob(params_init)
+>>> params_evals = logprob(params_init)
 >>>
 >>> #Defines inferencer. 'mu' and 'sigma' have one dimension each,
 >>> #and 'mu' and 'sigma' are defined on the real line
